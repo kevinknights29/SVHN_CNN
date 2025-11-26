@@ -1,32 +1,33 @@
-import os
-from pathlib import Path
+import logging
 import pickle
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
-import logging
 
 import cv2
-import numpy as np
-import scipy.io as sc
 import h5py
+import numpy as np
 from tqdm import tqdm
 
 from svhn_cnn.utils import config
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class BoundingBox:
     """Represents a bounding box with coordinates."""
+
     x_min: int
     y_min: int
     x_max: int
     y_max: int
 
-    def expand(self, factor: float, img_height: int, img_width: int) -> 'BoundingBox':
+    def expand(self, factor: float, img_height: int, img_width: int) -> "BoundingBox":
         """Expand the bounding box by a factor while staying within image bounds."""
         h = self.y_max - self.y_min
         w = self.x_max - self.x_min
@@ -37,7 +38,7 @@ class BoundingBox:
             x_min=max(0, self.x_min - w_expand),
             y_min=max(0, self.y_min - h_expand),
             x_max=min(img_width, self.x_max + w_expand),
-            y_max=min(img_height, self.y_max + h_expand)
+            y_max=min(img_height, self.y_max + h_expand),
         )
 
     def is_valid(self) -> bool:
@@ -56,6 +57,7 @@ class BoundingBox:
 @dataclass
 class DatasetConfig:
     """Configuration for dataset extraction."""
+
     image_size: tuple[int, int] = (48, 48)
     max_digits: int = 4
     expansion_factor: float = 0.3
@@ -66,7 +68,7 @@ class DatasetConfig:
 def extract_trainRGB(
     output_path: Optional[Path] = None,
     config_obj: Optional[DatasetConfig] = None,
-    use_zarr: bool = False
+    use_zarr: bool = False,
 ) -> None:
     """
     Extract training data from SVHN .mat file with modern best practices.
@@ -103,7 +105,11 @@ def extract_trainRGB(
         data = input_hf["digitStruct"]
         bbox_data = data["bbox"]
         name_data = data["name"]
-        num_samples = len(data)
+        if bbox_data.shape != name_data.shape:
+            logger.warning(
+                f"Bbox and Name have different shapes ({bbox_data.shape}, {name_data.shape} respectively)... Picking the smallest as number of samples"
+            )
+        num_samples = min(bbox_data.shape[0], name_data.shape[0])
     except Exception as e:
         logger.error(f"Failed to load digitStruct.mat: {e}")
         raise
@@ -113,11 +119,15 @@ def extract_trainRGB(
 
     # First pass: count valid samples for efficient array pre-allocation
     logger.info("First pass: counting valid samples...")
-    valid_samples = _count_valid_samples(bbox_data, input_hf, num_samples, cfg.max_digits)
+    valid_samples = _count_valid_samples(
+        bbox_data, input_hf, num_samples, cfg.max_digits
+    )
     logger.info(f"Found {valid_samples} valid samples")
 
     if valid_samples == 0:
-        logger.warning("No valid samples found! Check that digitStruct.mat and images are in the correct format.")
+        logger.warning(
+            "No valid samples found! Check that digitStruct.mat and images are in the correct format."
+        )
         input_hf.close()
         return
 
@@ -168,8 +178,10 @@ def extract_trainRGB(
                 continue
 
             # Extract positive sample (digit region)
-            digit_crop = img[bbox.y_min:bbox.y_max, bbox.x_min:bbox.x_max, :]
-            digit_resized = cv2.resize(digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA)
+            digit_crop = img[bbox.y_min : bbox.y_max, bbox.x_min : bbox.x_max, :]
+            digit_resized = cv2.resize(
+                digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+            )
             digit_gray = cv2.cvtColor(digit_resized, cv2.COLOR_BGR2GRAY)
 
             pos_samples_rgb[valid_idx] = digit_resized
@@ -180,7 +192,9 @@ def extract_trainRGB(
             # Extract negative samples (regions without digits)
             neg_crops = _extract_negative_samples(img, bbox, cfg)
             for neg_crop in neg_crops:
-                neg_resized = cv2.resize(neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA)
+                neg_resized = cv2.resize(
+                    neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+                )
                 neg_gray = cv2.cvtColor(neg_resized, cv2.COLOR_BGR2GRAY)
                 neg_samples_rgb.append(neg_resized)
                 neg_samples_gray.append(neg_gray)
@@ -207,16 +221,404 @@ def extract_trainRGB(
         neg_samples_gray = np.zeros((0, *cfg.image_size), dtype=np.uint8)
         neg_labels = np.zeros((0, 6), dtype=np.uint8)
 
-    logger.info(f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples")
+    logger.info(
+        f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples"
+    )
 
     # Write to disk
     logger.info(f"Writing dataset to {output_path}")
     if use_zarr:
-        _write_zarr(output_path, pos_samples_rgb, pos_samples_gray, pos_labels,
-                    neg_samples_rgb, neg_samples_gray, neg_labels)
+        _write_zarr(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
     else:
-        _write_hdf5(output_path, pos_samples_rgb, pos_samples_gray, pos_labels,
-                    neg_samples_rgb, neg_samples_gray, neg_labels)
+        _write_hdf5(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
+
+    logger.info("Dataset extraction complete!")
+
+
+def extract_testRGB(
+    output_path: Optional[Path] = None,
+    config_obj: Optional[DatasetConfig] = None,
+    use_zarr: bool = False,
+) -> None:
+    """
+    Extract test data from SVHN .mat file with modern best practices.
+
+    Improvements over original:
+    - Memory efficient: streams data to disk instead of loading all into memory
+    - Progress tracking with tqdm
+    - Proper error handling
+    - Type hints for better code clarity
+    - Configurable parameters via DatasetConfig
+    - Option to use Zarr instead of HDF5 (better for cloud storage)
+    - Cleaner bbox handling with dataclasses
+    - Proper logging instead of print statements
+
+    Args:
+        output_path: Optional custom output path for dataset
+        config_obj: Configuration object with extraction parameters
+        use_zarr: If True, use Zarr format instead of HDF5
+    """
+    # Initialize configuration
+    cfg = config_obj or DatasetConfig()
+    test_dir = Path(config.config["datasets.path"]["test"])
+
+    if output_path is None:
+        output_path = test_dir / "test.h5"
+
+    logger.info(f"Starting dataset extraction from {test_dir}")
+    logger.info(f"Output path: {output_path}")
+    logger.info(f"Image size: {cfg.image_size}, Max digits: {cfg.max_digits}")
+
+    # Load input metadata
+    try:
+        input_hf = h5py.File(test_dir / "digitStruct.mat", "r")
+        data = input_hf["digitStruct"]
+        bbox_data = data["bbox"]
+        name_data = data["name"]
+        if bbox_data.shape != name_data.shape:
+            logger.warning(
+                f"Bbox and Name have different shapes ({bbox_data.shape}, {name_data.shape} respectively)... Picking the smallest as number of samples"
+            )
+        num_samples = min(bbox_data.shape[0], name_data.shape[0])
+    except Exception as e:
+        logger.error(f"Failed to load digitStruct.mat: {e}")
+        raise
+
+    # Prepare labels
+    neglabel = np.array([0] + [cfg.blank_label] * 5, dtype=np.uint8)
+
+    # First pass: count valid samples for efficient array pre-allocation
+    logger.info("First pass: counting valid samples...")
+    valid_samples = _count_valid_samples(
+        bbox_data, input_hf, num_samples, cfg.max_digits
+    )
+    logger.info(f"Found {valid_samples} valid samples")
+
+    if valid_samples == 0:
+        logger.warning(
+            "No valid samples found! Check that digitStruct.mat and images are in the correct format."
+        )
+        input_hf.close()
+        return
+
+    # Pre-allocate arrays (more memory efficient than lists)
+    pos_samples_rgb = np.zeros((valid_samples, *cfg.image_size, 3), dtype=np.uint8)
+    pos_samples_gray = np.zeros((valid_samples, *cfg.image_size), dtype=np.uint8)
+    pos_labels = np.zeros((valid_samples, 6), dtype=np.uint8)
+
+    # Lists for negative samples (variable count)
+    neg_samples_rgb = []
+    neg_samples_gray = []
+    neg_labels = []
+
+    # Process samples with progress bar
+    valid_idx = 0
+    for i in tqdm(range(num_samples), desc="Processing images"):
+        try:
+            # Parse filename - SVHN uses name[i][0] structure
+            img_name = _parse_hdf5_string(name_data[i][0], input_hf)
+            img_path = test_dir / img_name
+
+            if not img_path.exists():
+                logger.warning(f"Image not found: {img_path}")
+                continue
+
+            # Load image
+            img = cv2.imread(str(img_path))
+            if img is None:
+                logger.warning(f"Failed to read image: {img_path}")
+                continue
+
+            img_height, img_width = img.shape[:2]
+
+            # Parse bounding box (bbox_data[i] is array, [0] gets the reference)
+            bbox = _parse_bbox(bbox_data[i][0], input_hf, img_height, img_width, cfg)
+            if not bbox.is_valid():
+                logger.debug(f"Sample {i}: Invalid bbox")
+                continue
+
+            # Parse labels
+            labels = _parse_labels(bbox_data[i][0], input_hf, cfg)
+            if labels is None:
+                logger.debug(f"Sample {i}: Failed to parse labels")
+                continue
+            # labels[0] contains the actual number of digits
+            if labels[0] > cfg.max_digits + 1:
+                logger.debug(f"Sample {i}: Too many digits ({labels[0]})")
+                continue
+
+            # Extract positive sample (digit region)
+            digit_crop = img[bbox.y_min : bbox.y_max, bbox.x_min : bbox.x_max, :]
+            digit_resized = cv2.resize(
+                digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+            )
+            digit_gray = cv2.cvtColor(digit_resized, cv2.COLOR_BGR2GRAY)
+
+            pos_samples_rgb[valid_idx] = digit_resized
+            pos_samples_gray[valid_idx] = digit_gray
+            pos_labels[valid_idx] = labels
+            valid_idx += 1
+
+            # Extract negative samples (regions without digits)
+            neg_crops = _extract_negative_samples(img, bbox, cfg)
+            for neg_crop in neg_crops:
+                neg_resized = cv2.resize(
+                    neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+                )
+                neg_gray = cv2.cvtColor(neg_resized, cv2.COLOR_BGR2GRAY)
+                neg_samples_rgb.append(neg_resized)
+                neg_samples_gray.append(neg_gray)
+                neg_labels.append(neglabel)
+
+        except Exception as e:
+            logger.warning(f"Error processing sample {i}: {e}")
+            continue
+
+    input_hf.close()
+
+    # Trim to actual valid count
+    pos_samples_rgb = pos_samples_rgb[:valid_idx]
+    pos_samples_gray = pos_samples_gray[:valid_idx]
+    pos_labels = pos_labels[:valid_idx]
+
+    # Convert negative samples to arrays
+    if neg_samples_rgb:
+        neg_samples_rgb = np.array(neg_samples_rgb, dtype=np.uint8)
+        neg_samples_gray = np.array(neg_samples_gray, dtype=np.uint8)
+        neg_labels = np.array(neg_labels, dtype=np.uint8)
+    else:
+        neg_samples_rgb = np.zeros((0, *cfg.image_size, 3), dtype=np.uint8)
+        neg_samples_gray = np.zeros((0, *cfg.image_size), dtype=np.uint8)
+        neg_labels = np.zeros((0, 6), dtype=np.uint8)
+
+    logger.info(
+        f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples"
+    )
+
+    # Write to disk
+    logger.info(f"Writing dataset to {output_path}")
+    if use_zarr:
+        _write_zarr(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
+    else:
+        _write_hdf5(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
+
+    logger.info("Dataset extraction complete!")
+
+
+def extract_extraRGB(
+    output_path: Optional[Path] = None,
+    config_obj: Optional[DatasetConfig] = None,
+    use_zarr: bool = False,
+) -> None:
+    """
+    Extract extra data from SVHN .mat file with modern best practices.
+
+    Improvements over original:
+    - Memory efficient: streams data to disk instead of loading all into memory
+    - Progress tracking with tqdm
+    - Proper error handling
+    - Type hints for better code clarity
+    - Configurable parameters via DatasetConfig
+    - Option to use Zarr instead of HDF5 (better for cloud storage)
+    - Cleaner bbox handling with dataclasses
+    - Proper logging instead of print statements
+
+    Args:
+        output_path: Optional custom output path for dataset
+        config_obj: Configuration object with extraction parameters
+        use_zarr: If True, use Zarr format instead of HDF5
+    """
+    # Initialize configuration
+    cfg = config_obj or DatasetConfig()
+    extra_dir = Path(config.config["datasets.path"]["extra"])
+
+    if output_path is None:
+        output_path = extra_dir / "extra.h5"
+
+    logger.info(f"Starting dataset extraction from {extra_dir}")
+    logger.info(f"Output path: {output_path}")
+    logger.info(f"Image size: {cfg.image_size}, Max digits: {cfg.max_digits}")
+
+    # Load input metadata
+    try:
+        input_hf = h5py.File(extra_dir / "digitStruct.mat", "r")
+        data = input_hf["digitStruct"]
+        bbox_data = data["bbox"]
+        name_data = data["name"]
+        if bbox_data.shape != name_data.shape:
+            logger.warning(
+                f"Bbox and Name have different shapes ({bbox_data.shape}, {name_data.shape} respectively)... Picking the smallest as number of samples"
+            )
+        num_samples = min(bbox_data.shape[0], name_data.shape[0])
+    except Exception as e:
+        logger.error(f"Failed to load digitStruct.mat: {e}")
+        raise
+
+    # Prepare labels
+    neglabel = np.array([0] + [cfg.blank_label] * 5, dtype=np.uint8)
+
+    # First pass: count valid samples for efficient array pre-allocation
+    logger.info("First pass: counting valid samples...")
+    valid_samples = _count_valid_samples(
+        bbox_data, input_hf, num_samples, cfg.max_digits
+    )
+    logger.info(f"Found {valid_samples} valid samples")
+
+    if valid_samples == 0:
+        logger.warning(
+            "No valid samples found! Check that digitStruct.mat and images are in the correct format."
+        )
+        input_hf.close()
+        return
+
+    # Pre-allocate arrays (more memory efficient than lists)
+    pos_samples_rgb = np.zeros((valid_samples, *cfg.image_size, 3), dtype=np.uint8)
+    pos_samples_gray = np.zeros((valid_samples, *cfg.image_size), dtype=np.uint8)
+    pos_labels = np.zeros((valid_samples, 6), dtype=np.uint8)
+
+    # Lists for negative samples (variable count)
+    neg_samples_rgb = []
+    neg_samples_gray = []
+    neg_labels = []
+
+    # Process samples with progress bar
+    valid_idx = 0
+    for i in tqdm(range(num_samples), desc="Processing images"):
+        try:
+            # Parse filename - SVHN uses name[i][0] structure
+            img_name = _parse_hdf5_string(name_data[i][0], input_hf)
+            img_path = extra_dir / img_name
+
+            if not img_path.exists():
+                logger.warning(f"Image not found: {img_path}")
+                continue
+
+            # Load image
+            img = cv2.imread(str(img_path))
+            if img is None:
+                logger.warning(f"Failed to read image: {img_path}")
+                continue
+
+            img_height, img_width = img.shape[:2]
+
+            # Parse bounding box (bbox_data[i] is array, [0] gets the reference)
+            bbox = _parse_bbox(bbox_data[i][0], input_hf, img_height, img_width, cfg)
+            if not bbox.is_valid():
+                logger.debug(f"Sample {i}: Invalid bbox")
+                continue
+
+            # Parse labels
+            labels = _parse_labels(bbox_data[i][0], input_hf, cfg)
+            if labels is None:
+                logger.debug(f"Sample {i}: Failed to parse labels")
+                continue
+            # labels[0] contains the actual number of digits
+            if labels[0] > cfg.max_digits + 1:
+                logger.debug(f"Sample {i}: Too many digits ({labels[0]})")
+                continue
+
+            # Extract positive sample (digit region)
+            digit_crop = img[bbox.y_min : bbox.y_max, bbox.x_min : bbox.x_max, :]
+            digit_resized = cv2.resize(
+                digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+            )
+            digit_gray = cv2.cvtColor(digit_resized, cv2.COLOR_BGR2GRAY)
+
+            pos_samples_rgb[valid_idx] = digit_resized
+            pos_samples_gray[valid_idx] = digit_gray
+            pos_labels[valid_idx] = labels
+            valid_idx += 1
+
+            # Extract negative samples (regions without digits)
+            neg_crops = _extract_negative_samples(img, bbox, cfg)
+            for neg_crop in neg_crops:
+                neg_resized = cv2.resize(
+                    neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA
+                )
+                neg_gray = cv2.cvtColor(neg_resized, cv2.COLOR_BGR2GRAY)
+                neg_samples_rgb.append(neg_resized)
+                neg_samples_gray.append(neg_gray)
+                neg_labels.append(neglabel)
+
+        except Exception as e:
+            logger.warning(f"Error processing sample {i}: {e}")
+            continue
+
+    input_hf.close()
+
+    # Trim to actual valid count
+    pos_samples_rgb = pos_samples_rgb[:valid_idx]
+    pos_samples_gray = pos_samples_gray[:valid_idx]
+    pos_labels = pos_labels[:valid_idx]
+
+    # Convert negative samples to arrays
+    if neg_samples_rgb:
+        neg_samples_rgb = np.array(neg_samples_rgb, dtype=np.uint8)
+        neg_samples_gray = np.array(neg_samples_gray, dtype=np.uint8)
+        neg_labels = np.array(neg_labels, dtype=np.uint8)
+    else:
+        neg_samples_rgb = np.zeros((0, *cfg.image_size, 3), dtype=np.uint8)
+        neg_samples_gray = np.zeros((0, *cfg.image_size), dtype=np.uint8)
+        neg_labels = np.zeros((0, 6), dtype=np.uint8)
+
+    logger.info(
+        f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples"
+    )
+
+    # Write to disk
+    logger.info(f"Writing dataset to {output_path}")
+    if use_zarr:
+        _write_zarr(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
+    else:
+        _write_hdf5(
+            output_path,
+            pos_samples_rgb,
+            pos_samples_gray,
+            pos_labels,
+            neg_samples_rgb,
+            neg_samples_gray,
+            neg_labels,
+        )
 
     logger.info("Dataset extraction complete!")
 
@@ -254,36 +656,38 @@ def _parse_hdf5_string(hdf5_ref, h5file) -> str:
             # Dereference the object reference
             obj = h5file[hdf5_ref]
             # Get the actual string data
-            if hasattr(obj, 'value'):
+            if hasattr(obj, "value"):
                 string_data = obj.value
             else:
                 string_data = obj[()]
 
             # Convert to string
             if isinstance(string_data, bytes):
-                return string_data.decode('utf-8')
+                return string_data.decode("utf-8")
             elif isinstance(string_data, np.ndarray):
                 # Handle character arrays
-                return ''.join(chr(c) for c in string_data.flatten())
+                return "".join(chr(c) for c in string_data.flatten())
             return str(string_data)
 
         # Handle regular arrays/values
-        if hasattr(hdf5_ref, 'squeeze'):
+        if hasattr(hdf5_ref, "squeeze"):
             hdf5_ref = hdf5_ref.squeeze()
-        if hasattr(hdf5_ref, 'item'):
+        if hasattr(hdf5_ref, "item"):
             val = hdf5_ref.item()
             if isinstance(val, bytes):
-                return val.decode('utf-8')
+                return val.decode("utf-8")
             return str(val)
         if isinstance(hdf5_ref, bytes):
-            return hdf5_ref.decode('utf-8')
+            return hdf5_ref.decode("utf-8")
         return str(hdf5_ref)
     except Exception as e:
         logger.debug(f"Error parsing HDF5 string: {e}")
         return ""
 
 
-def _parse_bbox(bbox_ref, h5file, img_height: int, img_width: int, cfg: DatasetConfig) -> BoundingBox:
+def _parse_bbox(
+    bbox_ref, h5file, img_height: int, img_width: int, cfg: DatasetConfig
+) -> BoundingBox:
     """Parse bounding box from HDF5 structure.
 
     SVHN digitStruct.mat has a nested structure:
@@ -331,6 +735,7 @@ def _parse_bbox(bbox_ref, h5file, img_height: int, img_width: int, cfg: DatasetC
     except Exception as e:
         logger.debug(f"Error parsing bbox: {e}")
         import traceback
+
         logger.debug(traceback.format_exc())
         return BoundingBox(0, 0, 0, 0)
 
@@ -368,19 +773,21 @@ def _parse_labels(bbox_ref, h5file, cfg: DatasetConfig) -> Optional[np.ndarray]:
         # Format: [num_digits, digit1, digit2, digit3, digit4, has_digits_flag]
         result = np.full(6, cfg.blank_label, dtype=np.uint8)
         result[0] = num_digits
-        result[1:num_digits+1] = labels_raw[:cfg.max_digits]
+        result[1 : num_digits + 1] = labels_raw[: cfg.max_digits]
 
         return result
 
     except Exception as e:
         logger.debug(f"Error parsing labels: {e}")
         import traceback
+
         logger.debug(traceback.format_exc())
         return None
 
 
-def _extract_negative_samples(img: np.ndarray, digit_bbox: BoundingBox,
-                              cfg: DatasetConfig) -> list[np.ndarray]:
+def _extract_negative_samples(
+    img: np.ndarray, digit_bbox: BoundingBox, cfg: DatasetConfig
+) -> list[np.ndarray]:
     """Extract negative samples (regions without digits) from image."""
     img_height, img_width = img.shape[:2]
     negative_crops = []
@@ -388,67 +795,99 @@ def _extract_negative_samples(img: np.ndarray, digit_bbox: BoundingBox,
 
     # Top-left region
     if digit_bbox.x_min > min_size and digit_bbox.y_min > min_size:
-        crop = img[0:digit_bbox.y_min-1, 0:digit_bbox.x_min-1, :]
+        crop = img[0 : digit_bbox.y_min - 1, 0 : digit_bbox.x_min - 1, :]
         if crop.size > 0:
             negative_crops.append(crop)
 
     # Left region
     if digit_bbox.x_min > min_size:
-        crop = img[digit_bbox.y_min:digit_bbox.y_max, 0:digit_bbox.x_min-1, :]
+        crop = img[digit_bbox.y_min : digit_bbox.y_max, 0 : digit_bbox.x_min - 1, :]
         if crop.size > 0:
             negative_crops.append(crop)
 
     # Top region
     if digit_bbox.y_min > min_size:
-        crop = img[0:digit_bbox.y_min-1, digit_bbox.x_min:digit_bbox.x_max, :]
+        crop = img[0 : digit_bbox.y_min - 1, digit_bbox.x_min : digit_bbox.x_max, :]
         if crop.size > 0:
             negative_crops.append(crop)
 
     # Bottom-right region
-    if (img_height - digit_bbox.y_max > min_size and
-        img_width - digit_bbox.x_max > min_size):
-        crop = img[digit_bbox.y_max+1:img_height, digit_bbox.x_max+1:img_width, :]
+    if (
+        img_height - digit_bbox.y_max > min_size
+        and img_width - digit_bbox.x_max > min_size
+    ):
+        crop = img[
+            digit_bbox.y_max + 1 : img_height, digit_bbox.x_max + 1 : img_width, :
+        ]
         if crop.size > 0:
             negative_crops.append(crop)
 
     # Right region
     if img_width - digit_bbox.x_max > min_size:
-        crop = img[digit_bbox.y_min:digit_bbox.y_max, digit_bbox.x_max+1:img_width, :]
+        crop = img[
+            digit_bbox.y_min : digit_bbox.y_max, digit_bbox.x_max + 1 : img_width, :
+        ]
         if crop.size > 0:
             negative_crops.append(crop)
 
     # Bottom region
     if img_height - digit_bbox.y_max > min_size:
-        crop = img[digit_bbox.y_max+1:img_height, digit_bbox.x_min:digit_bbox.x_max, :]
+        crop = img[
+            digit_bbox.y_max + 1 : img_height, digit_bbox.x_min : digit_bbox.x_max, :
+        ]
         if crop.size > 0:
             negative_crops.append(crop)
 
     return negative_crops
 
 
-def _write_hdf5(output_path: Path, pos_rgb: np.ndarray, pos_gray: np.ndarray,
-                pos_labels: np.ndarray, neg_rgb: np.ndarray, neg_gray: np.ndarray,
-                neg_labels: np.ndarray) -> None:
+def _write_hdf5(
+    output_path: Path,
+    pos_rgb: np.ndarray,
+    pos_gray: np.ndarray,
+    pos_labels: np.ndarray,
+    neg_rgb: np.ndarray,
+    neg_gray: np.ndarray,
+    neg_labels: np.ndarray,
+) -> None:
     """Write dataset to HDF5 format with compression."""
-    with h5py.File(output_path, 'w') as hf:
+    with h5py.File(output_path, "w") as hf:
         # Use compression for better storage efficiency
-        hf.create_dataset('digits', data=pos_rgb, compression='gzip', compression_opts=4)
-        hf.create_dataset('digitsBW', data=pos_gray, compression='gzip', compression_opts=4)
-        hf.create_dataset('labs5', data=pos_labels, compression='gzip', compression_opts=4)
+        hf.create_dataset(
+            "digits", data=pos_rgb, compression="gzip", compression_opts=4
+        )
+        hf.create_dataset(
+            "digitsBW", data=pos_gray, compression="gzip", compression_opts=4
+        )
+        hf.create_dataset(
+            "labs5", data=pos_labels, compression="gzip", compression_opts=4
+        )
 
-        hf.create_dataset('negdigits', data=neg_rgb, compression='gzip', compression_opts=4)
-        hf.create_dataset('negdigitsBW', data=neg_gray, compression='gzip', compression_opts=4)
-        hf.create_dataset('neglab', data=neg_labels, compression='gzip', compression_opts=4)
+        hf.create_dataset(
+            "negdigits", data=neg_rgb, compression="gzip", compression_opts=4
+        )
+        hf.create_dataset(
+            "negdigitsBW", data=neg_gray, compression="gzip", compression_opts=4
+        )
+        hf.create_dataset(
+            "neglab", data=neg_labels, compression="gzip", compression_opts=4
+        )
 
         # Add metadata
-        hf.attrs['num_positive'] = len(pos_labels)
-        hf.attrs['num_negative'] = len(neg_labels)
-        hf.attrs['image_size'] = pos_gray.shape[1:3]
+        hf.attrs["num_positive"] = len(pos_labels)
+        hf.attrs["num_negative"] = len(neg_labels)
+        hf.attrs["image_size"] = pos_gray.shape[1:3]
 
 
-def _write_zarr(output_path: Path, pos_rgb: np.ndarray, pos_gray: np.ndarray,
-                pos_labels: np.ndarray, neg_rgb: np.ndarray, neg_gray: np.ndarray,
-                neg_labels: np.ndarray) -> None:
+def _write_zarr(
+    output_path: Path,
+    pos_rgb: np.ndarray,
+    pos_gray: np.ndarray,
+    pos_labels: np.ndarray,
+    neg_rgb: np.ndarray,
+    neg_gray: np.ndarray,
+    neg_labels: np.ndarray,
+) -> None:
     """Write dataset to Zarr format (modern alternative to HDF5)."""
     try:
         import zarr
@@ -456,190 +895,52 @@ def _write_zarr(output_path: Path, pos_rgb: np.ndarray, pos_gray: np.ndarray,
         logger.error("Zarr not installed. Install with: pip install zarr")
         raise
 
-    store = zarr.DirectoryStore(str(output_path).replace('.h5', '.zarr'))
+    store = zarr.DirectoryStore(str(output_path).replace(".h5", ".zarr"))
     root = zarr.group(store=store, overwrite=True)
 
     # Zarr has better compression algorithms
-    root.create_dataset('digits', data=pos_rgb, chunks=(100, 48, 48, 3), compressor=zarr.Blosc(cname='zstd', clevel=3))
-    root.create_dataset('digitsBW', data=pos_gray, chunks=(100, 48, 48), compressor=zarr.Blosc(cname='zstd', clevel=3))
-    root.create_dataset('labs5', data=pos_labels, compressor=zarr.Blosc(cname='zstd', clevel=3))
+    root.create_dataset(
+        "digits",
+        data=pos_rgb,
+        chunks=(100, 48, 48, 3),
+        compressor=zarr.Blosc(cname="zstd", clevel=3),
+    )
+    root.create_dataset(
+        "digitsBW",
+        data=pos_gray,
+        chunks=(100, 48, 48),
+        compressor=zarr.Blosc(cname="zstd", clevel=3),
+    )
+    root.create_dataset(
+        "labs5", data=pos_labels, compressor=zarr.Blosc(cname="zstd", clevel=3)
+    )
 
-    root.create_dataset('negdigits', data=neg_rgb, chunks=(100, 48, 48, 3), compressor=zarr.Blosc(cname='zstd', clevel=3))
-    root.create_dataset('negdigitsBW', data=neg_gray, chunks=(100, 48, 48), compressor=zarr.Blosc(cname='zstd', clevel=3))
-    root.create_dataset('neglab', data=neg_labels, compressor=zarr.Blosc(cname='zstd', clevel=3))
+    root.create_dataset(
+        "negdigits",
+        data=neg_rgb,
+        chunks=(100, 48, 48, 3),
+        compressor=zarr.Blosc(cname="zstd", clevel=3),
+    )
+    root.create_dataset(
+        "negdigitsBW",
+        data=neg_gray,
+        chunks=(100, 48, 48),
+        compressor=zarr.Blosc(cname="zstd", clevel=3),
+    )
+    root.create_dataset(
+        "neglab", data=neg_labels, compressor=zarr.Blosc(cname="zstd", clevel=3)
+    )
 
     # Add metadata
-    root.attrs['num_positive'] = len(pos_labels)
-    root.attrs['num_negative'] = len(neg_labels)
-    root.attrs['image_size'] = pos_gray.shape[1:3]
-
-def extract_testRGB():
-    test = os.path.join("test")
-    # dirname = 'finalProjectData/test/'
-    # out = sc.loadmat('finalProjectData/test/testDigits.mat')
-    dirname = "test/"
-    out = sc.loadmat("test/testDigits.mat")
-    data = out["digitStruct"]
-    bbox = data["bbox"].squeeze()
-    name = data["name"].squeeze()
-    _, dm = data.shape
-
-    img = []
-    tr_labels5 = []
-    imgBW = []
-
-    sz = (48, 48)
-    filler = [0, 10, 10, 10, 10, 10]
-    hf = h5py.File("datasets/test.h5", "w")
-
-    for i in range(0, dm, 1):  # dm
-        im = cv2.imread(os.path.join(dirname, name[i][0].squeeze()))
-        b = bbox[i].flatten()
-        ht, wd, _ = im.shape
-
-        ha = np.max([0, np.int16(np.min(b["top"].squeeze()).squeeze())])
-        wa = np.max([0, np.int16(np.min(b["left"].squeeze()).squeeze())])
-        hb = np.int16(np.max(b["height"].squeeze()).squeeze()) + ha
-        wb = np.int16(np.sum(b["width"].squeeze()).squeeze()) + wa
-        h3 = (hb - ha) * 0.3
-        w3 = (wb - wa) * 0.3
-        ha = np.max([0, np.int16(ha - h3)])
-        hb = np.min([ht, np.int16(hb + h3)])
-        wa = np.max([0, np.int16(wa - w3)])
-        wb = np.min([wd, np.int16(wb + w3)])
-        if (wb - wa == 0) | (hb - ha == 0):
-            continue
-
-        numdig = b["label"].__len__()
-        if numdig >= 5:
-            continue  # skip >5 digits
-
-        bboxIm = im[ha:hb, wa:wb, :]
-        totIm = cv2.resize(bboxIm, sz)
-        img.append(totIm)
-        imgBW.append(cv2.cvtColor(totIm, cv2.COLOR_BGR2GRAY))
-
-        lab = np.copy(filler)
-        lab[0] = b["label"].__len__()
-
-        for n in range(0, numdig, 1):
-            currlab = np.int16(b["label"][n].squeeze())
-            if currlab == 10:
-                currlab = 0
-            lab[n + 1] = currlab
-
-        currLabel = np.asarray(lab, dtype="uint8")
-        tr_labels5.append(currLabel)
-
-        print(i)
-
-    hf.create_dataset("digits", data=img)
-    hf.create_dataset("digitsBW", data=imgBW)
-    hf.create_dataset("labs5", data=tr_labels5)
-    hf.close()
-
-
-def extract_extraTrainRGB():
-    # out = sc.loadmat('E:/extra/digitStruct.mat')
-    # data = out["digitStruct"]
-    out = sc.loadmat("digitStruct.mat")
-    data = out["digitStruct"]
-    extrain = "E:/extra"
-    bbox = data["bbox"].squeeze()
-    name = data["name"].squeeze()
-    _, dm = data.shape
-
-    img = []
-    tr_labels5 = []
-    imgBW = []
-
-    sz = (48, 48)
-    filler = [0, 10, 10, 10, 10, 10]
-
-    # open the file for writing
-    hf = h5py.File("datasets/extraTrain.h5", "w")
-
-    for i in range(0, dm, 1):  # dm
-        im = cv2.imread(os.path.join(extrain, name[i][0].squeeze()))
-        b = bbox[i].flatten()
-        ht, wd, _ = im.shape
-
-        ha = np.max([0, np.int16(np.min(b["top"].squeeze()).squeeze())])
-        wa = np.max([0, np.int16(np.min(b["left"].squeeze()).squeeze())])
-        hb = np.int16(np.max(b["height"].squeeze()).squeeze()) + ha
-        wb = np.int16(np.sum(b["width"].squeeze()).squeeze()) + wa
-        h3 = (hb - ha) * 0.3
-        w3 = (wb - wa) * 0.3
-        ha = np.max([0, np.int16(ha - h3)])
-        hb = np.min([ht, np.int16(hb + h3)])
-        wa = np.max([0, np.int16(wa - w3)])
-        wb = np.min([wd, np.int16(wb + w3)])
-        if (wb - wa == 0) | (hb - ha == 0):
-            continue
-
-        numdig = b["label"].__len__()
-        if numdig >= 5:
-            continue  # skip >5 digits
-
-        bboxIm = im[ha:hb, wa:wb, :]
-        totIm = cv2.resize(bboxIm, sz)
-        img.append(totIm)
-        imgBW.append(cv2.cvtColor(totIm, cv2.COLOR_BGR2GRAY))
-
-        lab = np.copy(filler)
-        lab[0] = b["label"].__len__()
-
-        for n in range(0, numdig, 1):
-            currlab = np.int16(b["label"][n].squeeze())
-            if currlab == 10:
-                currlab = 0
-            lab[n + 1] = currlab
-
-        currLabel = np.asarray(lab, dtype="uint8")
-        tr_labels5.append(currLabel)
-
-        print(i)
-
-    hf.create_dataset("digits", data=img)
-    hf.create_dataset("digitsBW", data=imgBW)
-    hf.create_dataset("labs5", data=tr_labels5)
-    hf.close()
-
-
-def preprocessDigDetector():
-    htr = h5py.File("datasets/training.h5", "r")
-    hts = h5py.File("datasets/testing.h5", "r")
-    htn = h5py.File("datasets/trainNegatives.h5", "r")
-
-    numNeg = range(0, 35000, 1)
-    negLabs = htn["labs"][numNeg]
-    x = np.vstack(
-        (htr["train48"][:], hts["digit48"][:], htn["digit48"][numNeg])
-    ).astype("float32")
-    y = np.vstack(
-        (
-            np.reshape(htr["labs5"][:, 0], (len(htr["labs5"][:, 0]), 1)),
-            np.reshape(hts["labs5"][:, 0], (len(hts["labs5"][:, 0]), 1)),
-            np.reshape(negLabs[:, 0], (len(negLabs), 1)),
-        )
-    ).astype("uint8")
-
-    y[y > 0] = 1
-    # x = x/255.
-
-    for i in range(x.shape[0]):
-        x[i] -= np.mean(x[i].flatten(), axis=0)
-
-    x = x - np.mean(x, axis=0)
-    x = x / np.std(x, axis=0)
-
-    return x, y
+    root.attrs["num_positive"] = len(pos_labels)
+    root.attrs["num_negative"] = len(neg_labels)
+    root.attrs["image_size"] = pos_gray.shape[1:3]
 
 
 def prepDataforCNN(numChannel=1, feat_norm=False):
-    htr = h5py.File("datasets/train.h5", "r")
-    hts = h5py.File("datasets/test.h5", "r")
-    hte = h5py.File("datasets/extraTrain.h5", "r")
+    htr = h5py.File(Path(config.config["datasets.path"]["train"]) / "train.h5", "r")
+    hts = h5py.File(Path(config.config["datasets.path"]["test"]) / "test.h5", "r")
+    hte = h5py.File(Path(config.config["datasets.path"]["extra"]) / "extra.h5", "r")
 
     if numChannel == 1:
         digits = htr["digitsBW"]
@@ -822,3 +1123,5 @@ def prepDataforCNN(numChannel=1, feat_norm=False):
 
 if __name__ == "__main__":
     extract_trainRGB()
+    extract_testRGB()
+    extract_extraRGB()
