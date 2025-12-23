@@ -317,11 +317,11 @@ def nonMaxSupression(box, thresh):  # Malisiewicz et al.
 
 
 def loadModel():
-    # CNNmodel = load_model('saved_models/designedBGRClassifier.hdf5')
-    CNNmodel = load_model('saved_models/VGGPreTrained.classifier.hdf5')
-    # CNNmodel = load_model('required/VGGPreTrained.classifier.hdf5')
+    # CNNmodel = load_model('saved_models/designedBGRClassifier.keras')
+    CNNmodel = load_model('saved_models/VGGPreTrained.classifier.keras')
+    # CNNmodel = load_model('required/VGGPreTrained.classifier.keras')
 
-    # CNNmodel = load_model('saved_models/VGGPreTrained.97val_classifier.hdf5')
+    # CNNmodel = load_model('saved_models/VGGPreTrained.97val_classifier.keras')
     return CNNmodel
 
 def loadAndDetectImages():
