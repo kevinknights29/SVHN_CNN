@@ -940,28 +940,28 @@ def _write_zarr(
 def prepDataforCNN(numChannel=1, feat_norm=False):
     htr = h5py.File(Path(config.config["datasets.path"]["train"]) / "train.h5", "r")
     hts = h5py.File(Path(config.config["datasets.path"]["test"]) / "test.h5", "r")
-    hte = h5py.File(Path(config.config["datasets.path"]["extra"]) / "extra.h5", "r")
+    # hte = h5py.File(Path(config.config["datasets.path"]["extra"]) / "extra.h5", "r")
 
     if numChannel == 1:
         digits = htr["digitsBW"]
         testdigits = hts["digitsBW"]
         negdigits = htr["negdigitsBW"]
-        extdigits = hte["digitsBW"]
+        # extdigits = hte["digitsBW"]
     else:
         digits = htr["digits"]
         testdigits = hts["digits"]
         negdigits = htr["negdigits"]
-        extdigits = hte["digits"]
+        # extdigits = hte["digits"]
 
     trainlabs = htr["labs5"]
     testlabs = hts["labs5"]
     neglabs = htr["neglab"]
-    extlabs = hte["labs5"]
+    # extlabs = hte["labs5"]
 
     digits = digits[:]
     testdigits = testdigits[:]
     negdigits = negdigits[:]
-    extdigits = extdigits[:]
+    # extdigits = extdigits[:]
     trainlabs = trainlabs[:]
     testlabs = testlabs[:]
     neglabs = neglabs[:]
@@ -982,19 +982,31 @@ def prepDataforCNN(numChannel=1, feat_norm=False):
     # negIdx = np.random.randint(0,negdigits.shape[0],3000)# Ran on 0. Tried on 80000(with 2 512). % Tried on 30000(50%) Tried on 12k
     # numtran = range(0,50,1)  # Ran on 0. Tried on 80000(with 2 512). % Tried on 30000(50%) % Tried on 12K
 
-    xtrdigits = extdigits[numtran, :]
-    xtrlab = extlabs[numtran, :]
+    # xtrdigits = extdigits[numtran, :]
+    # xtrlab = extlabs[numtran, :]
 
     ntrdigits = negdigits[negIdx]
     ntrlab = neglabs[negIdx, :]
     ntest = negdigits[numNegTs, :]
     ntslab = neglabs[numNegTs, :]
 
-    preTrain = np.vstack((digits, xtrdigits, ntrdigits)).astype("float32")  #
+    preTrain = np.vstack(
+        (
+            digits,
+            # xtrdigits,
+            ntrdigits,
+        )
+    ).astype("float32")  #
     preTest = np.vstack((testdigits, ntest)).astype("float32")  # xtest
 
     # Lets remove digits > 4. Only 9 cases of n = 5
-    trainlabs = np.vstack((trainlabs, xtrlab, ntrlab)).astype("uint8")  # xtrlab
+    trainlabs = np.vstack(
+        (
+            trainlabs,
+            # xtrlab,
+            ntrlab,
+        )
+    ).astype("uint8")
     testlabs = np.vstack((testlabs, ntslab)).astype("uint8")  # xtslab
     ind = np.argwhere(trainlabs[:, 0] < 5)
     ind = ind[:, 0]
@@ -1049,10 +1061,14 @@ def prepDataforCNN(numChannel=1, feat_norm=False):
         test = test / sd
         featNorm = {"mean": M, "std": sd}
         if numChannel > 1:
-            with open("datasets/BGRnorm.pickle", "wb") as handle:
+            with open(
+                Path(config.config["datasets.path"]["pickle"]) / "BGRnorm.pickle", "wb"
+            ) as handle:
                 pickle.dump(featNorm, handle, protocol=pickle.HIGHEST_PROTOCOL)
         else:
-            with open("datasets/BWnorm.pickle", "wb") as handle:
+            with open(
+                Path(config.config["datasets.path"]["pickle"]) / "BWnorm.pickle", "wb"
+            ) as handle:
                 pickle.dump(featNorm, handle, protocol=pickle.HIGHEST_PROTOCOL)
                 # np.save('datasets/BWnorm.npz', featNorm)
 
