@@ -90,8 +90,8 @@ def save_training_plots(
     for i, digit_name in enumerate(digit_names, 1):
         plt.figure()
         plt.ylim([0, 1])
-        plt.plot(history.history[f"{digit_name}_acc"])
-        plt.plot(history.history[f"val_{digit_name}_acc"])
+        plt.plot(history.history[f"{digit_name}_accuracy"])
+        plt.plot(history.history[f"val_{digit_name}_accuracy"])
         plt.title(f"Digit {i} accuracy")
         plt.ylabel("Accuracy")
         plt.xlabel("Epoch")
@@ -106,8 +106,8 @@ def save_training_plots(
     # Plot number of digits accuracy
     plt.figure()
     plt.ylim([0, 1])
-    plt.plot(history.history["num_acc"])
-    plt.plot(history.history["val_num_acc"])
+    plt.plot(history.history["num_accuracy"])
+    plt.plot(history.history["val_num_accuracy"])
     plt.title("Number of digits accuracy")
     plt.ylabel("Accuracy")
     plt.xlabel("Epoch")
@@ -122,8 +122,8 @@ def save_training_plots(
     # Plot digit classifier accuracy
     plt.figure()
     plt.ylim([0, 1])
-    plt.plot(history.history["nC_acc"])
-    plt.plot(history.history["val_nC_acc"])
+    plt.plot(history.history["nC_accuracy"])
+    plt.plot(history.history["val_nC_accuracy"])
     plt.title("Digit classifier accuracy")
     plt.ylabel("Accuracy")
     plt.xlabel("Epoch")
