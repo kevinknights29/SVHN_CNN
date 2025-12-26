@@ -90,10 +90,30 @@ Common functions used across all training scripts:
 
 - `get_lr_metric()`: Track learning rate during training
 - `measure_prediction()`: Calculate per-digit and sequence accuracy
-- `save_training_plots()`: Generate and save training history plots
-- `evaluate_and_save_metrics()`: Evaluate on all datasets and save metrics
+- `save_training_plots()`: **ENHANCED** - Generate comprehensive multi-panel plots with improved visualizations
+- `generate_training_report()`: **NEW** - Create markdown training reports with automated analysis
+- `evaluate_and_save_metrics()`: Evaluate on all datasets, save metrics, and auto-generate training report
 - `create_multi_output_heads()`: Create standard 6-output architecture
 - `get_standard_callbacks()`: Configure callbacks (checkpointing, early stopping, etc.)
+
+### Enhanced Plotting and Reporting
+
+The new visualization and reporting system provides:
+
+**Multi-Panel Plots:**
+- `all_digits_accuracy_*.png` - 4-panel comparison of all digit positions
+- `all_losses_*.png` - 6-panel overview (overall + per-digit losses)
+- `auxiliary_classifiers_*.png` - Number-of-digits and has-digits classifiers
+- `validation_comparison_*.png` - Direct comparison across all outputs
+
+**Comprehensive Training Report (`training_report_*.md`):**
+- Executive summary with key metrics
+- Automated analysis (overfitting detection, convergence checks)
+- Performance ranking by digit position
+- Identification of struggling components
+- Actionable recommendations based on training patterns
+
+See `example_training_report.py` for usage examples, or refer to the dedicated training utilities documentation in this directory
 
 ## Main Training Script
 
@@ -120,18 +140,21 @@ After training, outputs are organized as:
 ```
 project_root/
 ├── saved_models/
-│   ├── designedBGRClassifier.hdf5      # Custom CNN
-│   ├── vgg16.classifier.hdf5            # VGG-16 scratch
-│   └── VGGPreTrained.classifier.hdf5    # VGG-16 pretrained
+│   ├── designedBGRClassifier.hdf5         # Custom CNN
+│   ├── vgg16.classifier.hdf5              # VGG-16 scratch
+│   └── VGGPreTrained.classifier.hdf5      # VGG-16 pretrained
 ├── plots/
-│   ├── modelDig1Accuracy_*.png          # Per-digit accuracy plots
-│   ├── modelLoss_*.png                  # Training loss plots
-│   └── ...
+│   ├── training_report_*.md               # 📊 NEW: Comprehensive training report
+│   ├── all_digits_accuracy_*.png          # 📊 NEW: Multi-panel digit accuracy
+│   ├── all_losses_*.png                   # 📊 NEW: Multi-panel loss overview
+│   ├── auxiliary_classifiers_*.png        # 📊 NEW: Auxiliary classifier performance
+│   ├── validation_comparison_*.png        # 📊 NEW: Validation accuracy comparison
+│   └── [legacy individual plots]          # Old format plots (deprecated)
 ├── metrics/
-│   ├── customDesign.pickle              # Model metrics
-│   ├── customDesignHistory.pickle       # Training history
+│   ├── customDesign.pickle                # Model metrics
+│   ├── customDesignHistory.pickle         # Training history
 │   └── ...
-└── logs/                                # TensorBoard logs
+└── logs/                                  # TensorBoard logs
 ```
 
 ## Adding New Models

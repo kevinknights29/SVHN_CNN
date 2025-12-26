@@ -122,8 +122,18 @@ def train(
         learning_rate=learning_rate, beta_1=0.9, beta_2=0.999, epsilon=1e-7, amsgrad=True
     )
 
+    # Provide metrics for each of the 6 output heads
     model.compile(
-        loss="sparse_categorical_crossentropy", optimizer=optimizer, metrics=["accuracy"]
+        loss="sparse_categorical_crossentropy",
+        optimizer=optimizer,
+        metrics={
+            "num": ["accuracy"],
+            "dig1": ["accuracy"],
+            "dig2": ["accuracy"],
+            "dig3": ["accuracy"],
+            "dig4": ["accuracy"],
+            "nC": ["accuracy"],
+        },
     )
 
     model.summary()

@@ -75,7 +75,7 @@ def save_training_plots(
     history, model_name: str, output_dir: str = "plots"
 ) -> None:
     """
-    Create and save training history plots.
+    Create and save enhanced training history plots with multi-panel layouts.
 
     Args:
         history: Keras training history object
@@ -85,82 +85,343 @@ def save_training_plots(
     output_path = Path(output_dir)
     output_path.mkdir(exist_ok=True)
 
-    # Plot digit accuracies
     digit_names = ["dig1", "dig2", "dig3", "dig4"]
+
+    # Create comprehensive 4-panel accuracy plot for all digits
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig.suptitle(f'Per-Digit Training Accuracy - {model_name}', fontsize=16, fontweight='bold')
+
+    for i, (digit_name, ax) in enumerate(zip(digit_names, axes.flat), 1):
+        train_acc = history.history[f"{digit_name}_accuracy"]
+        val_acc = history.history[f"val_{digit_name}_accuracy"]
+        epochs = range(1, len(train_acc) + 1)
+
+        ax.plot(epochs, train_acc, 'b-', linewidth=2, label='Train', alpha=0.8)
+        ax.plot(epochs, val_acc, 'r-', linewidth=2, label='Validation', alpha=0.8)
+        ax.set_ylim([0, 1])
+        ax.set_xlabel('Epoch', fontsize=10)
+        ax.set_ylabel('Accuracy', fontsize=10)
+        ax.set_title(f'Digit Position {i}', fontsize=12, fontweight='bold')
+        ax.legend(loc='lower right')
+        ax.grid(True, alpha=0.3)
+
+        # Add final accuracy as text annotation
+        final_train = train_acc[-1]
+        final_val = val_acc[-1]
+        ax.text(0.02, 0.98, f'Final: Train={final_train:.3f}, Val={final_val:.3f}',
+                transform=ax.transAxes, fontsize=9, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+
+    plt.tight_layout()
+    plt.savefig(output_path / f"all_digits_accuracy_{model_name}.png",
+                bbox_inches="tight", dpi=200)
+    plt.close()
+
+    # Create comprehensive loss overview (overall + per-digit)
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+    fig.suptitle(f'Training Loss Overview - {model_name}', fontsize=16, fontweight='bold')
+
+    # Overall loss
+    ax = axes[0, 0]
+    train_loss = history.history["loss"]
+    val_loss = history.history["val_loss"]
+    epochs = range(1, len(train_loss) + 1)
+    ax.plot(epochs, train_loss, 'b-', linewidth=2, label='Train', alpha=0.8)
+    ax.plot(epochs, val_loss, 'r-', linewidth=2, label='Validation', alpha=0.8)
+    ax.set_xlabel('Epoch', fontsize=10)
+    ax.set_ylabel('Loss', fontsize=10)
+    ax.set_title('Overall Loss', fontsize=12, fontweight='bold')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    # Per-digit losses
     for i, digit_name in enumerate(digit_names, 1):
-        plt.figure()
-        plt.ylim([0, 1])
-        plt.plot(history.history[f"{digit_name}_accuracy"])
-        plt.plot(history.history[f"val_{digit_name}_accuracy"])
-        plt.title(f"Digit {i} accuracy")
-        plt.ylabel("Accuracy")
-        plt.xlabel("Epoch")
-        plt.legend(["train", "val"], loc="upper left")
-        plt.savefig(
-            output_path / f"modelDig{i}Accuracy_{model_name}.png",
-            bbox_inches="tight",
-            dpi=200,
-        )
-        plt.close()
+        ax = axes[(i-1)//3, (i-1)%3 + 1] if i <= 3 else axes[1, i-4]
+        train_loss = history.history[f"{digit_name}_loss"]
+        val_loss = history.history[f"val_{digit_name}_loss"]
+        epochs = range(1, len(train_loss) + 1)
 
-    # Plot number of digits accuracy
-    plt.figure()
-    plt.ylim([0, 1])
-    plt.plot(history.history["num_accuracy"])
-    plt.plot(history.history["val_num_accuracy"])
-    plt.title("Number of digits accuracy")
-    plt.ylabel("Accuracy")
-    plt.xlabel("Epoch")
-    plt.legend(["train", "val"], loc="upper left")
-    plt.savefig(
-        output_path / f"modelNumDigitsAccuracy_{model_name}.png",
-        bbox_inches="tight",
-        dpi=200,
-    )
+        ax.plot(epochs, train_loss, 'b-', linewidth=2, label='Train', alpha=0.8)
+        ax.plot(epochs, val_loss, 'r-', linewidth=2, label='Validation', alpha=0.8)
+        ax.set_xlabel('Epoch', fontsize=10)
+        ax.set_ylabel('Loss', fontsize=10)
+        ax.set_title(f'Digit {i} Loss', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right')
+        ax.grid(True, alpha=0.3)
+
+    # Additional classifier losses
+    ax = axes[1, 2]
+    train_num = history.history.get("num_loss", [])
+    val_num = history.history.get("val_num_loss", [])
+    if train_num:
+        epochs = range(1, len(train_num) + 1)
+        ax.plot(epochs, train_num, 'b-', linewidth=2, label='Train', alpha=0.8)
+        ax.plot(epochs, val_num, 'r-', linewidth=2, label='Validation', alpha=0.8)
+        ax.set_xlabel('Epoch', fontsize=10)
+        ax.set_ylabel('Loss', fontsize=10)
+        ax.set_title('Num Digits Loss', fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right')
+        ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path / f"all_losses_{model_name}.png",
+                bbox_inches="tight", dpi=200)
     plt.close()
 
-    # Plot digit classifier accuracy
-    plt.figure()
-    plt.ylim([0, 1])
-    plt.plot(history.history["nC_accuracy"])
-    plt.plot(history.history["val_nC_accuracy"])
-    plt.title("Digit classifier accuracy")
-    plt.ylabel("Accuracy")
-    plt.xlabel("Epoch")
-    plt.legend(["train", "val"], loc="upper left")
-    plt.savefig(
-        output_path / f"modelDigitClassifierAccuracy_{model_name}.png",
-        bbox_inches="tight",
-        dpi=200,
-    )
+    # Create auxiliary classifiers accuracy plot
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle(f'Auxiliary Classifiers - {model_name}', fontsize=16, fontweight='bold')
+
+    # Number of digits accuracy
+    ax = axes[0]
+    train_acc = history.history["num_accuracy"]
+    val_acc = history.history["val_num_accuracy"]
+    epochs = range(1, len(train_acc) + 1)
+    ax.plot(epochs, train_acc, 'b-', linewidth=2, label='Train', alpha=0.8)
+    ax.plot(epochs, val_acc, 'r-', linewidth=2, label='Validation', alpha=0.8)
+    ax.set_ylim([0, 1])
+    ax.set_xlabel('Epoch', fontsize=10)
+    ax.set_ylabel('Accuracy', fontsize=10)
+    ax.set_title('Number of Digits Classifier', fontsize=12, fontweight='bold')
+    ax.legend(loc='lower right')
+    ax.grid(True, alpha=0.3)
+
+    # Digit/no-digit classifier accuracy
+    ax = axes[1]
+    train_acc = history.history["nC_accuracy"]
+    val_acc = history.history["val_nC_accuracy"]
+    epochs = range(1, len(train_acc) + 1)
+    ax.plot(epochs, train_acc, 'b-', linewidth=2, label='Train', alpha=0.8)
+    ax.plot(epochs, val_acc, 'r-', linewidth=2, label='Validation', alpha=0.8)
+    ax.set_ylim([0, 1])
+    ax.set_xlabel('Epoch', fontsize=10)
+    ax.set_ylabel('Accuracy', fontsize=10)
+    ax.set_title('Has-Digits Binary Classifier', fontsize=12, fontweight='bold')
+    ax.legend(loc='lower right')
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path / f"auxiliary_classifiers_{model_name}.png",
+                bbox_inches="tight", dpi=200)
     plt.close()
 
-    # Plot overall loss
-    plt.figure()
-    plt.plot(history.history["loss"])
-    plt.plot(history.history["val_loss"])
-    plt.title("Model loss")
-    plt.ylabel("Loss")
-    plt.xlabel("Epoch")
-    plt.legend(["train", "validation"], loc="upper left")
-    plt.savefig(
-        output_path / f"modelLoss_{model_name}.png", bbox_inches="tight", dpi=200
-    )
-    plt.close()
+    # Create learning curve comparison plot
+    fig, ax = plt.subplots(figsize=(12, 6))
+    epochs = range(1, len(history.history["dig1_accuracy"]) + 1)
 
-    # Plot per-digit losses
     for i, digit_name in enumerate(digit_names, 1):
-        plt.figure()
-        plt.plot(history.history[f"{digit_name}_loss"])
-        plt.plot(history.history[f"val_{digit_name}_loss"])
-        plt.title(f"Digit {i} loss")
-        plt.ylabel("Loss")
-        plt.xlabel("Epoch")
-        plt.legend(["train", "validation"], loc="upper left")
-        plt.savefig(
-            output_path / f"digit{i}Loss_{model_name}.png", bbox_inches="tight", dpi=200
-        )
-        plt.close()
+        val_acc = history.history[f"val_{digit_name}_accuracy"]
+        ax.plot(epochs, val_acc, linewidth=2, label=f'Digit {i}', alpha=0.8)
+
+    ax.plot(epochs, history.history["val_num_accuracy"],
+            linewidth=2, linestyle='--', label='Num Digits', alpha=0.8)
+    ax.plot(epochs, history.history["val_nC_accuracy"],
+            linewidth=2, linestyle='--', label='Has Digits', alpha=0.8)
+
+    ax.set_ylim([0, 1])
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('Validation Accuracy', fontsize=12)
+    ax.set_title(f'Validation Accuracy Comparison Across All Outputs - {model_name}',
+                 fontsize=14, fontweight='bold')
+    ax.legend(loc='lower right', ncol=2)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.savefig(output_path / f"validation_comparison_{model_name}.png",
+                bbox_inches="tight", dpi=200)
+    plt.close()
+
+
+def generate_training_report(
+    history,
+    metrics: Dict,
+    model_name: str,
+    output_dir: str = "plots",
+) -> None:
+    """
+    Generate a comprehensive markdown training report with analysis and embedded plots.
+
+    Args:
+        history: Keras training history object
+        metrics: Dictionary containing evaluation metrics
+        model_name: Name of the model
+        output_dir: Directory where plots and report will be saved
+    """
+    from datetime import datetime
+
+    output_path = Path(output_dir)
+    output_path.mkdir(exist_ok=True)
+
+    # Analyze training progression
+    digit_names = ["dig1", "dig2", "dig3", "dig4"]
+    final_train_loss = history.history["loss"][-1]
+    final_val_loss = history.history["val_loss"][-1]
+    min_val_loss = min(history.history["val_loss"])
+    min_val_loss_epoch = history.history["val_loss"].index(min_val_loss) + 1
+
+    # Detect overfitting
+    overfitting_gap = final_train_loss - final_val_loss
+    is_overfitting = overfitting_gap < -0.1  # Val loss significantly higher than train
+
+    # Check convergence
+    last_5_val_losses = history.history["val_loss"][-5:]
+    loss_variance = np.var(last_5_val_losses) if len(last_5_val_losses) >= 5 else float('inf')
+    is_converged = loss_variance < 0.001
+
+    # Per-digit performance analysis
+    digit_performance = []
+    for i, digit_name in enumerate(digit_names, 1):
+        final_val_acc = history.history[f"val_{digit_name}_accuracy"][-1]
+        final_train_acc = history.history[f"{digit_name}_accuracy"][-1]
+        digit_performance.append({
+            'position': i,
+            'val_acc': final_val_acc,
+            'train_acc': final_train_acc,
+            'gap': final_train_acc - final_val_acc
+        })
+
+    # Sort by validation accuracy to identify struggling digits
+    digit_performance_sorted = sorted(digit_performance, key=lambda x: x['val_acc'])
+
+    # Generate markdown report
+    report_lines = []
+    report_lines.append(f"# Training Report: {model_name}")
+    report_lines.append(f"\n**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+    report_lines.append("---\n")
+
+    # Executive Summary
+    report_lines.append("## Executive Summary\n")
+    report_lines.append(f"- **Total Epochs:** {len(history.history['loss'])}")
+    report_lines.append(f"- **Best Validation Loss:** {min_val_loss:.4f} (Epoch {min_val_loss_epoch})")
+    report_lines.append(f"- **Final Training Loss:** {final_train_loss:.4f}")
+    report_lines.append(f"- **Final Validation Loss:** {final_val_loss:.4f}")
+    report_lines.append(f"- **Test Sequence Accuracy:** {metrics['testSeqAcc']:.2f}%")
+    report_lines.append(f"- **Validation Sequence Accuracy:** {metrics['valSeqAcc']:.2f}%")
+    report_lines.append(f"- **Training Sequence Accuracy:** {metrics['trainSeqAcc']:.2f}%\n")
+
+    # Training Status
+    report_lines.append("## Training Status\n")
+    if is_converged:
+        report_lines.append("✅ **Converged:** Model has converged (low loss variance in final epochs)\n")
+    else:
+        report_lines.append("⚠️ **Not Fully Converged:** Model may benefit from additional training\n")
+
+    if is_overfitting:
+        report_lines.append("⚠️ **Overfitting Detected:** Validation loss significantly higher than training loss")
+        report_lines.append("   - Consider adding regularization, dropout, or early stopping\n")
+    else:
+        report_lines.append("✅ **No Significant Overfitting**\n")
+
+    # Performance Metrics Table
+    report_lines.append("## Detailed Performance Metrics\n")
+    report_lines.append("### Sequence-Level Accuracy\n")
+    report_lines.append("| Dataset | Sequence Accuracy |")
+    report_lines.append("|---------|-------------------|")
+    report_lines.append(f"| Training | {metrics['trainSeqAcc']:.2f}% |")
+    report_lines.append(f"| Validation | {metrics['valSeqAcc']:.2f}% |")
+    report_lines.append(f"| Test | {metrics['testSeqAcc']:.2f}% |\n")
+
+    report_lines.append("### Per-Component Accuracy (Test Set)\n")
+    report_lines.append("| Component | Accuracy |")
+    report_lines.append("|-----------|----------|")
+    for i, acc in enumerate(metrics['testAcc']):
+        if i == 0:
+            label = "Number of Digits"
+        elif i <= 4:
+            label = f"Digit Position {i}"
+        else:
+            label = "Has Digits (Binary)"
+        report_lines.append(f"| {label} | {acc:.2f}% |")
+    report_lines.append("")
+
+    # Per-Digit Analysis
+    report_lines.append("## Per-Digit Position Analysis\n")
+    report_lines.append("### Performance Ranking (by validation accuracy)\n")
+    for i, perf in enumerate(digit_performance_sorted):
+        rank_emoji = "🥇" if i == 3 else "🥈" if i == 2 else "🥉" if i == 1 else "📊"
+        report_lines.append(f"{rank_emoji} **Digit Position {perf['position']}**")
+        report_lines.append(f"   - Validation Accuracy: {perf['val_acc']*100:.2f}%")
+        report_lines.append(f"   - Training Accuracy: {perf['train_acc']*100:.2f}%")
+        report_lines.append(f"   - Train-Val Gap: {perf['gap']*100:.2f}%\n")
+
+    # Identify struggles
+    worst_digit = digit_performance_sorted[0]
+    report_lines.append("### Areas of Difficulty\n")
+    if worst_digit['val_acc'] < 0.85:
+        report_lines.append(f"⚠️ **Digit Position {worst_digit['position']}** shows the lowest accuracy ({worst_digit['val_acc']*100:.2f}%)")
+        report_lines.append("   - This position may need additional attention or data augmentation\n")
+    else:
+        report_lines.append("✅ All digit positions performing well (>85% accuracy)\n")
+
+    # Training Progression
+    report_lines.append("## Training Progression\n")
+    first_epoch_val_loss = history.history["val_loss"][0]
+    improvement = ((first_epoch_val_loss - min_val_loss) / first_epoch_val_loss) * 100
+    report_lines.append(f"- **Initial Validation Loss:** {first_epoch_val_loss:.4f}")
+    report_lines.append(f"- **Best Validation Loss:** {min_val_loss:.4f}")
+    report_lines.append(f"- **Total Improvement:** {improvement:.1f}%\n")
+
+    # Check for early plateau
+    if min_val_loss_epoch < len(history.history['loss']) * 0.5:
+        report_lines.append("⚠️ **Early Plateau:** Best validation loss achieved in first half of training")
+        report_lines.append("   - Model may have converged early or learning rate may be too high\n")
+
+    # Visualizations
+    report_lines.append("## Visualizations\n")
+    report_lines.append("### Per-Digit Accuracy\n")
+    report_lines.append(f"![Per-Digit Accuracy](all_digits_accuracy_{model_name}.png)\n")
+    report_lines.append("### Loss Overview\n")
+    report_lines.append(f"![Loss Overview](all_losses_{model_name}.png)\n")
+    report_lines.append("### Auxiliary Classifiers\n")
+    report_lines.append(f"![Auxiliary Classifiers](auxiliary_classifiers_{model_name}.png)\n")
+    report_lines.append("### Validation Accuracy Comparison\n")
+    report_lines.append(f"![Validation Comparison](validation_comparison_{model_name}.png)\n")
+
+    # Recommendations
+    report_lines.append("## Recommendations\n")
+    if is_overfitting:
+        report_lines.append("1. **Address Overfitting:**")
+        report_lines.append("   - Increase dropout rates")
+        report_lines.append("   - Add L2 regularization")
+        report_lines.append("   - Use data augmentation")
+        report_lines.append("   - Reduce model complexity\n")
+
+    if not is_converged:
+        report_lines.append("2. **Improve Convergence:**")
+        report_lines.append("   - Train for more epochs")
+        report_lines.append("   - Adjust learning rate schedule")
+        report_lines.append("   - Use different optimizer settings\n")
+
+    if worst_digit['val_acc'] < 0.85:
+        report_lines.append(f"3. **Improve Digit Position {worst_digit['position']}:**")
+        report_lines.append("   - Analyze misclassified examples")
+        report_lines.append("   - Consider position-specific data augmentation")
+        report_lines.append("   - Review label quality for this position\n")
+
+    if metrics['testSeqAcc'] < metrics['valSeqAcc'] - 5:
+        report_lines.append("4. **Test-Validation Gap:**")
+        report_lines.append("   - Test accuracy significantly lower than validation")
+        report_lines.append("   - Possible data distribution mismatch")
+        report_lines.append("   - Review test set characteristics\n")
+
+    # Training Configuration Summary
+    report_lines.append("## Training History Summary\n")
+    report_lines.append("```")
+    report_lines.append(f"Total epochs: {len(history.history['loss'])}")
+    report_lines.append(f"Best epoch: {min_val_loss_epoch}")
+    report_lines.append(f"Loss improvement: {improvement:.1f}%")
+    report_lines.append(f"Converged: {is_converged}")
+    report_lines.append(f"Overfitting detected: {is_overfitting}")
+    report_lines.append("```\n")
+
+    # Save report
+    report_path = output_path / f"training_report_{model_name}.md"
+    with open(report_path, 'w') as f:
+        f.write('\n'.join(report_lines))
+
+    print(f"\n{'='*70}")
+    print(f"Training report generated: {report_path}")
+    print(f"{'='*70}\n")
 
 
 def evaluate_and_save_metrics(
@@ -248,6 +509,9 @@ def evaluate_and_save_metrics(
 
     print(f"Metrics saved to {metrics_path / model_name}.pickle")
     print(f"Training history saved to {metrics_path / model_name}History.pickle")
+
+    # Generate comprehensive training report
+    generate_training_report(history, metrics, model_name, output_dir="plots")
 
     return metrics
 
