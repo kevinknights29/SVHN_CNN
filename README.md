@@ -232,6 +232,6 @@ extra_dir = /path/to/extra
 
 This project is inspired by and builds upon:
 
-- Yuval Netzer et al. - "Reading Digits in Natural Images with Unsupervised Feature Learning" ([paper](http://ufldl.stanford.edu/housenumbers/nips2011_housenumbers.pdf)
+- Yuval Netzer et al. - "Reading Digits in Natural Images with Unsupervised Feature Learning" ([paper](http://ufldl.stanford.edu/housenumbers/nips2011_housenumbers.pdf))
 - Original implementation by [beeps82](https://github.com/beeps82/SVHN_CNN)
 
