@@ -136,7 +136,7 @@ def save_training_plots(
 
     # Per-digit losses
     for i, digit_name in enumerate(digit_names, 1):
-        ax = axes[(i-1)//3, (i-1)%3 + 1] if i <= 3 else axes[1, i-4]
+        ax = axes[0, i] if i <= 2 else axes[1, i-3]
         train_loss = history.history[f"{digit_name}_loss"]
         val_loss = history.history[f"val_{digit_name}_loss"]
         epochs = range(1, len(train_loss) + 1)
