@@ -4,7 +4,9 @@ Project
 .DS_Store
 data/
 logs/
-
+metrics/
+saved_models/
+config.ini
 
 # =====================================
 # Python .gitignore
