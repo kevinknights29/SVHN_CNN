@@ -65,43 +65,37 @@ class DatasetConfig:
     min_negative_region_size: int = 10
 
 
-def extract_trainRGB(
+def _extract_dataset_generic(
+    dataset_type: str,
     output_path: Optional[Path] = None,
     config_obj: Optional[DatasetConfig] = None,
     use_zarr: bool = False,
 ) -> None:
     """
-    Extract training data from SVHN .mat file with modern best practices.
+    Generic dataset extraction function that works for train/test/extra datasets.
 
-    Improvements over original:
-    - Memory efficient: streams data to disk instead of loading all into memory
-    - Progress tracking with tqdm
-    - Proper error handling
-    - Type hints for better code clarity
-    - Configurable parameters via DatasetConfig
-    - Option to use Zarr instead of HDF5 (better for cloud storage)
-    - Cleaner bbox handling with dataclasses
-    - Proper logging instead of print statements
+    This eliminates code duplication across the three extraction functions.
 
     Args:
+        dataset_type: One of "train", "test", or "extra"
         output_path: Optional custom output path for dataset
         config_obj: Configuration object with extraction parameters
         use_zarr: If True, use Zarr format instead of HDF5
     """
     # Initialize configuration
     cfg = config_obj or DatasetConfig()
-    train_dir = Path(config.config["datasets.path"]["train"])
+    data_dir = Path(config.config["datasets.path"][dataset_type])
 
     if output_path is None:
-        output_path = train_dir / "train.h5"
+        output_path = data_dir / f"{dataset_type}.h5"
 
-    logger.info(f"Starting dataset extraction from {train_dir}")
+    logger.info(f"Starting {dataset_type} dataset extraction from {data_dir}")
     logger.info(f"Output path: {output_path}")
     logger.info(f"Image size: {cfg.image_size}, Max digits: {cfg.max_digits}")
 
     # Load input metadata
     try:
-        input_hf = h5py.File(train_dir / "digitStruct.mat", "r")
+        input_hf = h5py.File(data_dir / "digitStruct.mat", "r")
         data = input_hf["digitStruct"]
         bbox_data = data["bbox"]
         name_data = data["name"]
@@ -143,11 +137,11 @@ def extract_trainRGB(
 
     # Process samples with progress bar
     valid_idx = 0
-    for i in tqdm(range(num_samples), desc="Processing images"):
+    for i in tqdm(range(num_samples), desc=f"Processing {dataset_type} images"):
         try:
             # Parse filename - SVHN uses name[i][0] structure
             img_name = _parse_hdf5_string(name_data[i][0], input_hf)
-            img_path = train_dir / img_name
+            img_path = data_dir / img_name
 
             if not img_path.exists():
                 logger.warning(f"Image not found: {img_path}")
@@ -248,7 +242,33 @@ def extract_trainRGB(
             neg_labels,
         )
 
-    logger.info("Dataset extraction complete!")
+    logger.info(f"{dataset_type.capitalize()} dataset extraction complete!")
+
+
+def extract_trainRGB(
+    output_path: Optional[Path] = None,
+    config_obj: Optional[DatasetConfig] = None,
+    use_zarr: bool = False,
+) -> None:
+    """
+    Extract training data from SVHN .mat file with modern best practices.
+
+    Improvements over original:
+    - Memory efficient: streams data to disk instead of loading all into memory
+    - Progress tracking with tqdm
+    - Proper error handling
+    - Type hints for better code clarity
+    - Configurable parameters via DatasetConfig
+    - Option to use Zarr instead of HDF5 (better for cloud storage)
+    - Cleaner bbox handling with dataclasses
+    - Proper logging instead of print statements
+
+    Args:
+        output_path: Optional custom output path for dataset
+        config_obj: Configuration object with extraction parameters
+        use_zarr: If True, use Zarr format instead of HDF5
+    """
+    _extract_dataset_generic("train", output_path, config_obj, use_zarr)
 
 
 def extract_testRGB(
@@ -274,167 +294,7 @@ def extract_testRGB(
         config_obj: Configuration object with extraction parameters
         use_zarr: If True, use Zarr format instead of HDF5
     """
-    # Initialize configuration
-    cfg = config_obj or DatasetConfig()
-    test_dir = Path(config.config["datasets.path"]["test"])
-
-    if output_path is None:
-        output_path = test_dir / "test.h5"
-
-    logger.info(f"Starting dataset extraction from {test_dir}")
-    logger.info(f"Output path: {output_path}")
-    logger.info(f"Image size: {cfg.image_size}, Max digits: {cfg.max_digits}")
-
-    # Load input metadata
-    try:
-        input_hf = h5py.File(test_dir / "digitStruct.mat", "r")
-        data = input_hf["digitStruct"]
-        bbox_data = data["bbox"]
-        name_data = data["name"]
-        if bbox_data.shape != name_data.shape:
-            logger.warning(
-                f"Bbox and Name have different shapes ({bbox_data.shape}, {name_data.shape} respectively)... Picking the smallest as number of samples"
-            )
-        num_samples = min(bbox_data.shape[0], name_data.shape[0])
-    except Exception as e:
-        logger.error(f"Failed to load digitStruct.mat: {e}")
-        raise
-
-    # Prepare labels
-    neglabel = np.array([0] + [cfg.blank_label] * 5, dtype=np.uint8)
-
-    # First pass: count valid samples for efficient array pre-allocation
-    logger.info("First pass: counting valid samples...")
-    valid_samples = _count_valid_samples(
-        bbox_data, input_hf, num_samples, cfg.max_digits
-    )
-    logger.info(f"Found {valid_samples} valid samples")
-
-    if valid_samples == 0:
-        logger.warning(
-            "No valid samples found! Check that digitStruct.mat and images are in the correct format."
-        )
-        input_hf.close()
-        return
-
-    # Pre-allocate arrays (more memory efficient than lists)
-    pos_samples_rgb = np.zeros((valid_samples, *cfg.image_size, 3), dtype=np.uint8)
-    pos_samples_gray = np.zeros((valid_samples, *cfg.image_size), dtype=np.uint8)
-    pos_labels = np.zeros((valid_samples, 6), dtype=np.uint8)
-
-    # Lists for negative samples (variable count)
-    neg_samples_rgb = []
-    neg_samples_gray = []
-    neg_labels = []
-
-    # Process samples with progress bar
-    valid_idx = 0
-    for i in tqdm(range(num_samples), desc="Processing images"):
-        try:
-            # Parse filename - SVHN uses name[i][0] structure
-            img_name = _parse_hdf5_string(name_data[i][0], input_hf)
-            img_path = test_dir / img_name
-
-            if not img_path.exists():
-                logger.warning(f"Image not found: {img_path}")
-                continue
-
-            # Load image
-            img = cv2.imread(str(img_path))
-            if img is None:
-                logger.warning(f"Failed to read image: {img_path}")
-                continue
-
-            img_height, img_width = img.shape[:2]
-
-            # Parse bounding box (bbox_data[i] is array, [0] gets the reference)
-            bbox = _parse_bbox(bbox_data[i][0], input_hf, img_height, img_width, cfg)
-            if not bbox.is_valid():
-                logger.debug(f"Sample {i}: Invalid bbox")
-                continue
-
-            # Parse labels
-            labels = _parse_labels(bbox_data[i][0], input_hf, cfg)
-            if labels is None:
-                logger.debug(f"Sample {i}: Failed to parse labels")
-                continue
-            # labels[0] contains the actual number of digits
-            if labels[0] > cfg.max_digits + 1:
-                logger.debug(f"Sample {i}: Too many digits ({labels[0]})")
-                continue
-
-            # Extract positive sample (digit region)
-            digit_crop = img[bbox.y_min : bbox.y_max, bbox.x_min : bbox.x_max, :]
-            digit_resized = cv2.resize(
-                digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA
-            )
-            digit_gray = cv2.cvtColor(digit_resized, cv2.COLOR_BGR2GRAY)
-
-            pos_samples_rgb[valid_idx] = digit_resized
-            pos_samples_gray[valid_idx] = digit_gray
-            pos_labels[valid_idx] = labels
-            valid_idx += 1
-
-            # Extract negative samples (regions without digits)
-            neg_crops = _extract_negative_samples(img, bbox, cfg)
-            for neg_crop in neg_crops:
-                neg_resized = cv2.resize(
-                    neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA
-                )
-                neg_gray = cv2.cvtColor(neg_resized, cv2.COLOR_BGR2GRAY)
-                neg_samples_rgb.append(neg_resized)
-                neg_samples_gray.append(neg_gray)
-                neg_labels.append(neglabel)
-
-        except Exception as e:
-            logger.warning(f"Error processing sample {i}: {e}")
-            continue
-
-    input_hf.close()
-
-    # Trim to actual valid count
-    pos_samples_rgb = pos_samples_rgb[:valid_idx]
-    pos_samples_gray = pos_samples_gray[:valid_idx]
-    pos_labels = pos_labels[:valid_idx]
-
-    # Convert negative samples to arrays
-    if neg_samples_rgb:
-        neg_samples_rgb = np.array(neg_samples_rgb, dtype=np.uint8)
-        neg_samples_gray = np.array(neg_samples_gray, dtype=np.uint8)
-        neg_labels = np.array(neg_labels, dtype=np.uint8)
-    else:
-        neg_samples_rgb = np.zeros((0, *cfg.image_size, 3), dtype=np.uint8)
-        neg_samples_gray = np.zeros((0, *cfg.image_size), dtype=np.uint8)
-        neg_labels = np.zeros((0, 6), dtype=np.uint8)
-
-    logger.info(
-        f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples"
-    )
-
-    # Write to disk
-    logger.info(f"Writing dataset to {output_path}")
-    if use_zarr:
-        _write_zarr(
-            output_path,
-            pos_samples_rgb,
-            pos_samples_gray,
-            pos_labels,
-            neg_samples_rgb,
-            neg_samples_gray,
-            neg_labels,
-        )
-    else:
-        _write_hdf5(
-            output_path,
-            pos_samples_rgb,
-            pos_samples_gray,
-            pos_labels,
-            neg_samples_rgb,
-            neg_samples_gray,
-            neg_labels,
-        )
-
-    logger.info("Dataset extraction complete!")
+    _extract_dataset_generic("test", output_path, config_obj, use_zarr)
 
 
 def extract_extraRGB(
@@ -460,167 +320,7 @@ def extract_extraRGB(
         config_obj: Configuration object with extraction parameters
         use_zarr: If True, use Zarr format instead of HDF5
     """
-    # Initialize configuration
-    cfg = config_obj or DatasetConfig()
-    extra_dir = Path(config.config["datasets.path"]["extra"])
-
-    if output_path is None:
-        output_path = extra_dir / "extra.h5"
-
-    logger.info(f"Starting dataset extraction from {extra_dir}")
-    logger.info(f"Output path: {output_path}")
-    logger.info(f"Image size: {cfg.image_size}, Max digits: {cfg.max_digits}")
-
-    # Load input metadata
-    try:
-        input_hf = h5py.File(extra_dir / "digitStruct.mat", "r")
-        data = input_hf["digitStruct"]
-        bbox_data = data["bbox"]
-        name_data = data["name"]
-        if bbox_data.shape != name_data.shape:
-            logger.warning(
-                f"Bbox and Name have different shapes ({bbox_data.shape}, {name_data.shape} respectively)... Picking the smallest as number of samples"
-            )
-        num_samples = min(bbox_data.shape[0], name_data.shape[0])
-    except Exception as e:
-        logger.error(f"Failed to load digitStruct.mat: {e}")
-        raise
-
-    # Prepare labels
-    neglabel = np.array([0] + [cfg.blank_label] * 5, dtype=np.uint8)
-
-    # First pass: count valid samples for efficient array pre-allocation
-    logger.info("First pass: counting valid samples...")
-    valid_samples = _count_valid_samples(
-        bbox_data, input_hf, num_samples, cfg.max_digits
-    )
-    logger.info(f"Found {valid_samples} valid samples")
-
-    if valid_samples == 0:
-        logger.warning(
-            "No valid samples found! Check that digitStruct.mat and images are in the correct format."
-        )
-        input_hf.close()
-        return
-
-    # Pre-allocate arrays (more memory efficient than lists)
-    pos_samples_rgb = np.zeros((valid_samples, *cfg.image_size, 3), dtype=np.uint8)
-    pos_samples_gray = np.zeros((valid_samples, *cfg.image_size), dtype=np.uint8)
-    pos_labels = np.zeros((valid_samples, 6), dtype=np.uint8)
-
-    # Lists for negative samples (variable count)
-    neg_samples_rgb = []
-    neg_samples_gray = []
-    neg_labels = []
-
-    # Process samples with progress bar
-    valid_idx = 0
-    for i in tqdm(range(num_samples), desc="Processing images"):
-        try:
-            # Parse filename - SVHN uses name[i][0] structure
-            img_name = _parse_hdf5_string(name_data[i][0], input_hf)
-            img_path = extra_dir / img_name
-
-            if not img_path.exists():
-                logger.warning(f"Image not found: {img_path}")
-                continue
-
-            # Load image
-            img = cv2.imread(str(img_path))
-            if img is None:
-                logger.warning(f"Failed to read image: {img_path}")
-                continue
-
-            img_height, img_width = img.shape[:2]
-
-            # Parse bounding box (bbox_data[i] is array, [0] gets the reference)
-            bbox = _parse_bbox(bbox_data[i][0], input_hf, img_height, img_width, cfg)
-            if not bbox.is_valid():
-                logger.debug(f"Sample {i}: Invalid bbox")
-                continue
-
-            # Parse labels
-            labels = _parse_labels(bbox_data[i][0], input_hf, cfg)
-            if labels is None:
-                logger.debug(f"Sample {i}: Failed to parse labels")
-                continue
-            # labels[0] contains the actual number of digits
-            if labels[0] > cfg.max_digits + 1:
-                logger.debug(f"Sample {i}: Too many digits ({labels[0]})")
-                continue
-
-            # Extract positive sample (digit region)
-            digit_crop = img[bbox.y_min : bbox.y_max, bbox.x_min : bbox.x_max, :]
-            digit_resized = cv2.resize(
-                digit_crop, cfg.image_size, interpolation=cv2.INTER_AREA
-            )
-            digit_gray = cv2.cvtColor(digit_resized, cv2.COLOR_BGR2GRAY)
-
-            pos_samples_rgb[valid_idx] = digit_resized
-            pos_samples_gray[valid_idx] = digit_gray
-            pos_labels[valid_idx] = labels
-            valid_idx += 1
-
-            # Extract negative samples (regions without digits)
-            neg_crops = _extract_negative_samples(img, bbox, cfg)
-            for neg_crop in neg_crops:
-                neg_resized = cv2.resize(
-                    neg_crop, cfg.image_size, interpolation=cv2.INTER_AREA
-                )
-                neg_gray = cv2.cvtColor(neg_resized, cv2.COLOR_BGR2GRAY)
-                neg_samples_rgb.append(neg_resized)
-                neg_samples_gray.append(neg_gray)
-                neg_labels.append(neglabel)
-
-        except Exception as e:
-            logger.warning(f"Error processing sample {i}: {e}")
-            continue
-
-    input_hf.close()
-
-    # Trim to actual valid count
-    pos_samples_rgb = pos_samples_rgb[:valid_idx]
-    pos_samples_gray = pos_samples_gray[:valid_idx]
-    pos_labels = pos_labels[:valid_idx]
-
-    # Convert negative samples to arrays
-    if neg_samples_rgb:
-        neg_samples_rgb = np.array(neg_samples_rgb, dtype=np.uint8)
-        neg_samples_gray = np.array(neg_samples_gray, dtype=np.uint8)
-        neg_labels = np.array(neg_labels, dtype=np.uint8)
-    else:
-        neg_samples_rgb = np.zeros((0, *cfg.image_size, 3), dtype=np.uint8)
-        neg_samples_gray = np.zeros((0, *cfg.image_size), dtype=np.uint8)
-        neg_labels = np.zeros((0, 6), dtype=np.uint8)
-
-    logger.info(
-        f"Extracted {valid_idx} positive and {len(neg_labels)} negative samples"
-    )
-
-    # Write to disk
-    logger.info(f"Writing dataset to {output_path}")
-    if use_zarr:
-        _write_zarr(
-            output_path,
-            pos_samples_rgb,
-            pos_samples_gray,
-            pos_labels,
-            neg_samples_rgb,
-            neg_samples_gray,
-            neg_labels,
-        )
-    else:
-        _write_hdf5(
-            output_path,
-            pos_samples_rgb,
-            pos_samples_gray,
-            pos_labels,
-            neg_samples_rgb,
-            neg_samples_gray,
-            neg_labels,
-        )
-
-    logger.info("Dataset extraction complete!")
+    _extract_dataset_generic("extra", output_path, config_obj, use_zarr)
 
 
 def _count_valid_samples(bbox_data, h5file, num_samples: int, max_digits: int) -> int:
@@ -1137,7 +837,44 @@ def prepDataforCNN(numChannel=1, feat_norm=False):
     return data
 
 
+def generate_normalization_files(
+    numChannel_bgr: int = 3, numChannel_bw: int = 1, feat_norm: bool = True
+) -> None:
+    """
+    Generate normalization pickle files for both BGR and BW datasets.
+
+    This function should be called after extracting all datasets to create
+    the normalization statistics files needed during inference.
+
+    Args:
+        numChannel_bgr: Number of channels for BGR normalization (default: 3)
+        numChannel_bw: Number of channels for BW normalization (default: 1)
+        feat_norm: Whether to perform feature normalization (default: True)
+    """
+    logger.info("Generating normalization files...")
+
+    # Generate BGR normalization file
+    logger.info("Processing BGR (3-channel) normalization...")
+    _ = prepDataforCNN(numChannel=numChannel_bgr, feat_norm=feat_norm)
+    logger.info("BGR normalization file created at datasets/BGRnorm.pickle")
+
+    # Generate BW normalization file
+    logger.info("Processing BW (1-channel) normalization...")
+    _ = prepDataforCNN(numChannel=numChannel_bw, feat_norm=feat_norm)
+    logger.info("BW normalization file created at datasets/BWnorm.pickle")
+
+    logger.info("Normalization files generated successfully!")
+
+
 if __name__ == "__main__":
+    # Extract all datasets
+    logger.info("Starting full dataset pipeline...")
+
     extract_trainRGB()
     extract_testRGB()
-    extract_extraRGB()
+    # extract_extraRGB()  # Uncomment if you have extra dataset
+
+    # Generate normalization pickle files
+    generate_normalization_files()
+
+    logger.info("Full dataset pipeline complete!")
