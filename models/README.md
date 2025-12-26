@@ -1,6 +1,32 @@
 # SVHN CNN Models
 
-This directory contains modular training scripts for different CNN architectures used for SVHN digit sequence detection.
+This directory contains the **official training scripts** for different CNN architectures used for SVHN digit sequence detection.
+
+**IMPORTANT:** To train any model, use the training scripts in this directory. These are the only supported way to train models in this project.
+
+## Current Training Progress
+
+### Pre-trained VGG-16 (Best Model) ⭐
+- **Test Sequence Accuracy:** 78.20%
+- **Validation Sequence Accuracy:** 88.57%
+- **Training Sequence Accuracy:** 98.71%
+- **Status:** Model trained for 50 epochs; shows some overfitting but achieves best performance
+- **Detailed Report:** [plots/training_report_vgg16_PreTrain.md](../plots/training_report_vgg16_PreTrain.md)
+
+### Custom Designed CNN
+- **Test Sequence Accuracy:** 35.33%
+- **Validation Sequence Accuracy:** 66.37%
+- **Training Sequence Accuracy:** 68.40%
+- **Status:** Model trained for 75 epochs; converged without significant overfitting
+- **Detailed Report:** [plots/training_report_customDesign.md](../plots/training_report_customDesign.md)
+
+All training runs automatically generate:
+- Comprehensive training reports with automated analysis
+- Multi-panel accuracy and loss visualizations
+- Per-digit performance breakdowns
+- Actionable recommendations
+
+See the [plots](../plots/) directory for all training visualizations and reports.
 
 ## Directory Structure
 
@@ -27,9 +53,6 @@ A deep custom-designed architecture specifically for SVHN digit detection.
 **Training:**
 ```bash
 python models/train_custom_cnn.py
-
-# Or via main script
-python train.py --model custom
 ```
 
 **Default hyperparameters:**
@@ -49,9 +72,6 @@ Standard VGG-16 architecture trained from random initialization.
 **Training:**
 ```bash
 python models/train_vgg16_scratch.py
-
-# Or via main script
-python train.py --model vgg16_scratch
 ```
 
 **Default hyperparameters:**
@@ -74,9 +94,6 @@ VGG-16 with ImageNet pre-trained weights using transfer learning.
 **Training:**
 ```bash
 python models/train_vgg16_pretrained.py
-
-# Or via main script
-python train.py --model vgg16_pretrained
 ```
 
 **Default hyperparameters:**
@@ -115,23 +132,22 @@ The new visualization and reporting system provides:
 
 See `example_training_report.py` for usage examples, or refer to the dedicated training utilities documentation in this directory
 
-## Main Training Script
+## Running Training
 
-The `train.py` script in the project root provides a unified interface:
+To train a model, simply run the corresponding training script from the project root:
 
 ```bash
-# Train specific model
-python train.py --model vgg16_pretrained
+# Train the recommended pre-trained VGG-16 model
+python models/train_vgg16_pretrained.py
 
-# Train with custom hyperparameters
-python train.py --model custom --epochs 100 --batch-size 128 --lr 0.0005
+# Train the custom designed CNN
+python models/train_custom_cnn.py
 
-# Train all models sequentially
-python train.py --all
-
-# View help
-python train.py --help
+# Train VGG-16 from scratch
+python models/train_vgg16_scratch.py
 ```
+
+Each script uses optimized default hyperparameters. To customize training parameters, you can edit the script directly or modify the function arguments in the `if __name__ == "__main__":` block.
 
 ## Output Structure
 
@@ -165,7 +181,7 @@ To add a new model architecture:
 2. Import shared utilities from `training_utils.py`
 3. Implement `build_model()` and `train()` functions
 4. Use `create_multi_output_heads()` for consistent output structure
-5. Add the model to `train.py` orchestrator
+5. Follow the same structure as existing training scripts
 
 **Template:**
 
