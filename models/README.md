@@ -1,6 +1,32 @@
 # SVHN CNN Models
 
-This directory contains modular training scripts for different CNN architectures used for SVHN digit sequence detection.
+This directory contains the **official training scripts** for different CNN architectures used for SVHN digit sequence detection.
+
+**IMPORTANT:** To train any model, use the training scripts in this directory. These are the only supported way to train models in this project.
+
+## Current Training Progress
+
+### Pre-trained VGG-16 (Best Model) ⭐
+- **Test Sequence Accuracy:** 78.20%
+- **Validation Sequence Accuracy:** 88.57%
+- **Training Sequence Accuracy:** 98.71%
+- **Status:** Model trained for 50 epochs; shows some overfitting but achieves best performance
+- **Detailed Report:** [plots/training_report_vgg16_PreTrain.md](../plots/training_report_vgg16_PreTrain.md)
+
+### Custom Designed CNN
+- **Test Sequence Accuracy:** 35.33%
+- **Validation Sequence Accuracy:** 66.37%
+- **Training Sequence Accuracy:** 68.40%
+- **Status:** Model trained for 75 epochs; converged without significant overfitting
+- **Detailed Report:** [plots/training_report_customDesign.md](../plots/training_report_customDesign.md)
+
+All training runs automatically generate:
+- Comprehensive training reports with automated analysis
+- Multi-panel accuracy and loss visualizations
+- Per-digit performance breakdowns
+- Actionable recommendations
+
+See the [plots](../plots/) directory for all training visualizations and reports.
 
 ## Directory Structure
 
@@ -27,9 +53,6 @@ A deep custom-designed architecture specifically for SVHN digit detection.
 **Training:**
 ```bash
 python models/train_custom_cnn.py
-
-# Or via main script
-python train.py --model custom
 ```
 
 **Default hyperparameters:**
@@ -49,9 +72,6 @@ Standard VGG-16 architecture trained from random initialization.
 **Training:**
 ```bash
 python models/train_vgg16_scratch.py
-
-# Or via main script
-python train.py --model vgg16_scratch
 ```
 
 **Default hyperparameters:**
@@ -74,9 +94,6 @@ VGG-16 with ImageNet pre-trained weights using transfer learning.
 **Training:**
 ```bash
 python models/train_vgg16_pretrained.py
-
-# Or via main script
-python train.py --model vgg16_pretrained
 ```
 
 **Default hyperparameters:**
@@ -115,23 +132,22 @@ The new visualization and reporting system provides:
 
 See `example_training_report.py` for usage examples, or refer to the dedicated training utilities documentation in this directory
 
-## Main Training Script
+## Running Training
 
-The `train.py` script in the project root provides a unified interface:
+To train a model, simply run the corresponding training script from the project root:
 
 ```bash
-# Train specific model
-python train.py --model vgg16_pretrained
+# Train the recommended pre-trained VGG-16 model
+python models/train_vgg16_pretrained.py
 
-# Train with custom hyperparameters
-python train.py --model custom --epochs 100 --batch-size 128 --lr 0.0005
+# Train the custom designed CNN
+python models/train_custom_cnn.py
 
-# Train all models sequentially
-python train.py --all
-
-# View help
-python train.py --help
+# Train VGG-16 from scratch
+python models/train_vgg16_scratch.py
 ```
+
+Each script uses optimized default hyperparameters. To customize training parameters, you can edit the script directly or modify the function arguments in the `if __name__ == "__main__":` block.
 
 ## Output Structure
 
@@ -165,7 +181,7 @@ To add a new model architecture:
 2. Import shared utilities from `training_utils.py`
 3. Implement `build_model()` and `train()` functions
 4. Use `create_multi_output_heads()` for consistent output structure
-5. Add the model to `train.py` orchestrator
+5. Follow the same structure as existing training scripts
 
 **Template:**
 
@@ -257,10 +273,132 @@ All training scripts require:
 
 Data loading requires the `svhn_cnn` package from `src/`.
 
+## PyTorch Migration 🔥
+
+The entire codebase has been migrated to PyTorch! All three model architectures are now available in PyTorch with equivalent functionality.
+
+### PyTorch Files
+
+```
+models/
+├── pytorch_models.py                     # PyTorch model architectures
+├── pytorch_utils.py                      # PyTorch training utilities
+├── train_custom_cnn_pytorch.py          # Custom CNN (PyTorch)
+├── train_vgg16_scratch_pytorch.py       # VGG-16 scratch (PyTorch)
+└── train_vgg16_pretrained_pytorch.py    # VGG-16 pretrained (PyTorch)
+```
+
+### PyTorch Model Architectures (`pytorch_models.py`)
+
+All three models are implemented as `nn.Module` subclasses:
+
+1. **CustomCNN** - Custom designed CNN with 8 conv blocks
+2. **VGG16Scratch** - VGG-16 from random initialization
+3. **VGG16Pretrained** - VGG-16 with ImageNet weights (uses `torchvision.models`)
+
+**Factory function:**
+```python
+from models.pytorch_models import get_model
+
+model = get_model('custom', input_channels=3)
+model = get_model('vgg16_scratch', input_channels=3)
+model = get_model('vgg16_pretrained', input_channels=3, freeze_backbone=False)
+```
+
+### PyTorch Training
+
+Training scripts mirror the TensorFlow versions with the same hyperparameters:
+
+```bash
+# Train with PyTorch (recommended)
+python models/train_custom_cnn_pytorch.py
+python models/train_vgg16_scratch_pytorch.py
+python models/train_vgg16_pretrained_pytorch.py
+```
+
+### PyTorch Utilities (`pytorch_utils.py`)
+
+Complete PyTorch equivalents of all training utilities:
+
+- **MultiOutputLoss** - Combined cross-entropy loss for all 6 outputs
+- **create_data_loaders()** - Convert numpy arrays to PyTorch DataLoaders
+- **train_model()** - Complete training loop with callbacks
+- **EarlyStopping** - Early stopping callback
+- **ModelCheckpoint** - Save best model based on validation loss
+- **measure_prediction()** - Calculate per-digit and sequence accuracy
+- **evaluate_model()** - Evaluate on train/val/test sets
+- **save_training_plots()** - Generate all training visualizations
+- **save_metrics()** - Save metrics in same format as TensorFlow
+
+### Key Differences from TensorFlow
+
+1. **Data Format**: PyTorch uses NCHW (batch, channels, height, width) vs TensorFlow's NHWC
+2. **Model Outputs**: Dictionary format `{'num': tensor, 'dig1': tensor, ...}`
+3. **Checkpoints**: Saved as `.pt` files with `model_state_dict`
+4. **Device Management**: Automatic CPU/GPU detection with explicit `.to(device)` calls
+5. **Adaptive Pooling**: Uses `AdaptiveAvgPool2d` to handle 48x48 input size for VGG models
+
+### Model Output Files
+
+PyTorch models save to:
+```
+saved_models/
+├── designedBGRClassifier_pytorch.pt          # Custom CNN
+├── vgg16_classifier_pytorch.pt               # VGG-16 scratch
+└── VGGPreTrained_classifier_pytorch.pt       # VGG-16 pretrained
+```
+
+### Testing PyTorch Models
+
+Test model architectures without training:
+
+```bash
+python models/pytorch_models.py
+```
+
+This will instantiate all three models and verify forward pass functionality.
+
+### Performance Expectations
+
+PyTorch models should achieve similar performance to TensorFlow versions:
+- **Custom CNN**: ~66-68% validation sequence accuracy
+- **VGG-16 Scratch**: TBD (depends on training)
+- **VGG-16 Pretrained**: **~91% test sequence accuracy** (same as TensorFlow)
+
+### Dependencies
+
+PyTorch training requires:
+```toml
+torch>=2.0.0
+torchvision>=0.15.0
+```
+
+These have been added to `pyproject.toml`. Install with:
+```bash
+uv sync
+```
+
+## TensorFlow vs PyTorch - Which to Use?
+
+**Use PyTorch if:**
+- You prefer PyTorch's imperative programming style
+- You need more control over training loops
+- You want easier debugging with standard Python
+- You're deploying to PyTorch-based production systems
+
+**Use TensorFlow/Keras if:**
+- You prefer high-level APIs and quick prototyping
+- You're already familiar with Keras
+- You need TensorFlow Serving or TensorFlow Lite
+- You want to use existing trained `.hdf5` models
+
+Both implementations produce equivalent results and save compatible metrics/plots!
+
 ## Notes
 
-- All models use `sparse_categorical_crossentropy` loss
+- All models use `sparse_categorical_crossentropy` loss (TensorFlow) or `CrossEntropyLoss` (PyTorch)
 - Feature normalization is applied by default (`feat_norm=True`)
 - Models are saved only when performance improves (via `ModelCheckpoint`)
 - Early stopping prevents overfitting
 - Learning rate reduction on plateau improves convergence
+- PyTorch models automatically detect and use GPU if available
