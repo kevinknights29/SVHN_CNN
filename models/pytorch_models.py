@@ -345,12 +345,313 @@ class VGG16Pretrained(nn.Module):
         return self.output_heads(x)
 
 
+class SqueezeExcitation(nn.Module):
+    """
+    Squeeze-and-Excitation block for channel attention.
+
+    Adaptively recalibrates channel-wise feature responses by explicitly
+    modeling interdependencies between channels.
+
+    Reference: Hu et al., "Squeeze-and-Excitation Networks" (2018)
+    """
+
+    def __init__(self, channels: int, reduction: int = 16):
+        """
+        Args:
+            channels: Number of input channels
+            reduction: Reduction ratio for the bottleneck
+        """
+        super().__init__()
+        self.squeeze = nn.AdaptiveAvgPool2d(1)
+        self.excitation = nn.Sequential(
+            nn.Linear(channels, channels // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channels // reduction, channels, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        b, c, _, _ = x.size()
+        # Squeeze
+        y = self.squeeze(x).view(b, c)
+        # Excitation
+        y = self.excitation(y).view(b, c, 1, 1)
+        # Scale
+        return x * y.expand_as(x)
+
+
+class InceptionModule(nn.Module):
+    """
+    Inception-style module with multi-scale feature extraction.
+
+    Uses parallel convolutions with different kernel sizes to capture
+    features at multiple scales simultaneously.
+
+    Inspired by: Szegedy et al., "Going Deeper with Convolutions" (2015)
+    """
+
+    def __init__(self, in_channels: int, out_channels: int):
+        """
+        Args:
+            in_channels: Number of input channels
+            out_channels: Number of output channels (divided among branches)
+        """
+        super().__init__()
+
+        # Ensure output channels is divisible by 4
+        branch_channels = out_channels // 4
+
+        # 1x1 convolution branch
+        self.branch1x1 = nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        # 3x3 convolution branch
+        self.branch3x3 = nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(branch_channels, branch_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        # 5x5 convolution branch (using two 3x3 for efficiency)
+        self.branch5x5 = nn.Sequential(
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(branch_channels, branch_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(branch_channels, branch_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True)
+        )
+
+        # Max pooling branch
+        self.branch_pool = nn.Sequential(
+            nn.MaxPool2d(kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels, branch_channels, kernel_size=1),
+            nn.BatchNorm2d(branch_channels),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        branch1 = self.branch1x1(x)
+        branch2 = self.branch3x3(x)
+        branch3 = self.branch5x5(x)
+        branch4 = self.branch_pool(x)
+
+        # Concatenate along channel dimension
+        return torch.cat([branch1, branch2, branch3, branch4], dim=1)
+
+
+class ResidualBlock(nn.Module):
+    """
+    Residual block with skip connection.
+
+    Implements the residual learning framework where the block learns
+    a residual mapping F(x) and adds it to the input: H(x) = F(x) + x
+
+    Reference: He et al., "Deep Residual Learning for Image Recognition" (2016)
+    """
+
+    def __init__(self, in_channels: int, out_channels: int, stride: int = 1, use_se: bool = True):
+        """
+        Args:
+            in_channels: Number of input channels
+            out_channels: Number of output channels
+            stride: Stride for the first convolution
+            use_se: Whether to use Squeeze-and-Excitation
+        """
+        super().__init__()
+
+        # Main path
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3,
+                               stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3,
+                               stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(out_channels)
+
+        # SE block
+        self.se = SqueezeExcitation(out_channels) if use_se else nn.Identity()
+
+        # Skip connection
+        self.skip = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.skip = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1,
+                          stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        identity = self.skip(x)
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        # Apply SE block
+        out = self.se(out)
+
+        # Add skip connection
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+
+class ImprovedCNN(nn.Module):
+    """
+    Improved CNN architecture incorporating modern deep learning techniques.
+
+    This architecture combines:
+    - ResNet-style skip connections for better gradient flow
+    - Inception-style multi-scale feature extraction
+    - Squeeze-and-Excitation blocks for channel attention
+    - Progressive feature extraction with residual blocks
+    - Strategic dropout and regularization
+
+    The model is designed to significantly improve upon the baseline CustomCNN
+    performance (8.77% test accuracy) and approach the pre-trained VGG16
+    performance (78.02% test accuracy) using a custom architecture.
+    """
+
+    def __init__(self, input_channels: int = 3, dropout_rate: float = 0.5):
+        """
+        Args:
+            input_channels: Number of input channels (1 for grayscale, 3 for RGB)
+            dropout_rate: Dropout rate for regularization
+        """
+        super().__init__()
+
+        # Initial convolution - extract low-level features
+        self.initial = nn.Sequential(
+            nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True)
+        )
+
+        # Stage 1: 48x48 -> 24x24
+        self.stage1 = nn.Sequential(
+            ResidualBlock(32, 64, stride=1, use_se=True),
+            ResidualBlock(64, 64, stride=1, use_se=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        # Stage 2: 24x24 -> 12x12 with Inception module
+        self.stage2 = nn.Sequential(
+            InceptionModule(64, 128),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout2d(dropout_rate * 0.5)  # Spatial dropout
+        )
+
+        # Stage 3: 12x12 -> 6x6
+        self.stage3 = nn.Sequential(
+            ResidualBlock(128, 256, stride=1, use_se=True),
+            ResidualBlock(256, 256, stride=1, use_se=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        # Stage 4: 6x6 -> 3x3 with Inception module
+        self.stage4 = nn.Sequential(
+            InceptionModule(256, 384),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Dropout2d(dropout_rate * 0.6)
+        )
+
+        # Stage 5: 3x3 -> 1x1
+        self.stage5 = nn.Sequential(
+            ResidualBlock(384, 512, stride=1, use_se=True),
+            ResidualBlock(512, 512, stride=1, use_se=True),
+            nn.AdaptiveAvgPool2d((1, 1))
+        )
+
+        # Fully connected layers with residual-style connections
+        self.fc1 = nn.Linear(512, 1024)
+        self.fc1_bn = nn.BatchNorm1d(1024)
+        self.fc1_dropout = nn.Dropout(dropout_rate)
+
+        self.fc2 = nn.Linear(1024, 1024)
+        self.fc2_bn = nn.BatchNorm1d(1024)
+        self.fc2_dropout = nn.Dropout(dropout_rate * 0.5)
+
+        # Multi-output heads
+        self.output_heads = MultiOutputHead(in_features=1024)
+
+        # Initialize weights
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        """Initialize network weights using He initialization."""
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d) or isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        """
+        Forward pass through the network.
+
+        Args:
+            x: Input tensor of shape (batch_size, channels, height, width)
+
+        Returns:
+            Dictionary with 6 output tensors
+        """
+        # Feature extraction with progressive refinement
+        x = self.initial(x)
+        x = self.stage1(x)
+        x = self.stage2(x)
+        x = self.stage3(x)
+        x = self.stage4(x)
+        x = self.stage5(x)
+
+        # Flatten
+        x = x.view(x.size(0), -1)
+
+        # Fully connected layers with skip-like structure
+        identity = x
+        x = self.fc1(x)
+        x = self.fc1_bn(x)
+        x = torch.relu(x)
+        x = self.fc1_dropout(x)
+
+        x = self.fc2(x)
+        x = self.fc2_bn(x)
+        x = torch.relu(x)
+        x = self.fc2_dropout(x)
+
+        # Multi-output prediction
+        return self.output_heads(x)
+
+
 def get_model(model_name: str, input_channels: int = 3, **kwargs):
     """
     Factory function to get a model by name.
 
     Args:
-        model_name: One of 'custom', 'vgg16_scratch', 'vgg16_pretrained'
+        model_name: One of 'custom', 'improved', 'vgg16_scratch', 'vgg16_pretrained'
         input_channels: Number of input channels
         **kwargs: Additional model-specific arguments
 
@@ -362,6 +663,7 @@ def get_model(model_name: str, input_channels: int = 3, **kwargs):
     """
     models_map = {
         'custom': CustomCNN,
+        'improved': ImprovedCNN,
         'vgg16_scratch': VGG16Scratch,
         'vgg16_pretrained': VGG16Pretrained,
     }
@@ -381,7 +683,7 @@ if __name__ == "__main__":
     height, width = 48, 48
     x = torch.randn(batch_size, channels, height, width)
 
-    for model_name in ['custom', 'vgg16_scratch', 'vgg16_pretrained']:
+    for model_name in ['custom', 'improved', 'vgg16_scratch', 'vgg16_pretrained']:
         print(f"\n{'='*70}")
         print(f"Testing {model_name.upper()}")
         print('='*70)
