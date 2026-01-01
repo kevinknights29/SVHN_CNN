@@ -1,10 +1,12 @@
 """
 PyTorch implementations of SVHN digit detection models.
 
-This module contains PyTorch versions of the three model architectures:
-1. Custom designed CNN
-2. VGG-16 from scratch
-3. VGG-16 with ImageNet pre-trained weights
+This module contains PyTorch versions of the model architectures:
+1. Custom designed CNN (baseline)
+2. Improved CNN (best performing custom architecture)
+3. Alternative CNN (with Spatial Transformer Network)
+4. VGG-16 from scratch
+5. VGG-16 with ImageNet pre-trained weights
 
 All models use multi-output prediction with 6 heads:
 - Number of digits (0-4)
@@ -17,7 +19,72 @@ All models use multi-output prediction with 6 heads:
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torchvision import models
+
+
+class STN(nn.Module):
+    """
+    Spatial Transformer Network for learning invariance to translation, scale, and rotation.
+
+    The STN learns to apply spatial transformations to input images, helping the network
+    focus on relevant features regardless of their position or orientation.
+
+    Reference: Jaderberg et al., "Spatial Transformer Networks" (2015)
+    """
+
+    def __init__(self, input_channel: int = 3):
+        """
+        Args:
+            input_channel: Number of input channels (1 for grayscale, 3 for RGB)
+        """
+        super().__init__()
+
+        # Localization Network - learns where to focus
+        # Input: (Batch, input_channel, 48, 48)
+        self.localization = nn.Sequential(
+            nn.Conv2d(input_channel, 8, kernel_size=7),  # -> 42x42
+            nn.MaxPool2d(2, stride=2),                   # -> 21x21
+            nn.ReLU(True),
+            nn.Conv2d(8, 10, kernel_size=5),             # -> 17x17
+            nn.MaxPool2d(2, stride=2),                   # -> 8x8
+            nn.ReLU(True)
+        )
+
+        # Regressor - calculates 6 parameters (2x3 affine transformation matrix)
+        self.fc_loc = nn.Sequential(
+            nn.Linear(10 * 8 * 8, 32),  # 10 channels * 8 * 8
+            nn.ReLU(True),
+            nn.Linear(32, 3 * 2)  # 6 parameters output
+        )
+
+        # Initialize weights to identity transformation
+        self.fc_loc[2].weight.data.zero_()
+        self.fc_loc[2].bias.data.copy_(torch.tensor([1, 0, 0, 0, 1, 0], dtype=torch.float))
+
+    def forward(self, x):
+        """
+        Apply learned spatial transformation to input.
+
+        Args:
+            x: Input tensor of shape (batch_size, channels, height, width)
+
+        Returns:
+            Spatially transformed tensor of same shape as input
+        """
+        # Calculate transformation parameters (theta)
+        xs = self.localization(x)
+        xs = xs.view(-1, 10 * 8 * 8)
+        theta = self.fc_loc(xs)
+        theta = theta.view(-1, 2, 3)
+
+        # Generate sampling grid
+        grid = F.affine_grid(theta, x.size(), align_corners=True)
+
+        # Sample from input using grid to get transformed image
+        x = F.grid_sample(x, grid, align_corners=True)
+
+        return x
 
 
 class MultiOutputHead(nn.Module):
@@ -646,12 +713,111 @@ class ImprovedCNN(nn.Module):
         return self.output_heads(x)
 
 
+class AlternativeCNN(nn.Module):
+    """
+    Alternative CNN architecture with Spatial Transformer Network.
+
+    This architecture explores a different approach using:
+    - Spatial Transformer Network (STN) for spatial invariance
+    - 4 convolutional blocks with progressive feature extraction
+    - Batch normalization and dropout for regularization
+    - Dual fully connected layers (1024 -> 1024)
+    - 6 output heads for multi-task learning
+
+    The STN module learns to apply spatial transformations to focus on
+    relevant image regions before passing through the main CNN pipeline.
+    """
+
+    def __init__(self, input_channels: int = 3, dropout_rate: float = 0.25):
+        """
+        Args:
+            input_channels: Number of input channels (1 for grayscale, 3 for RGB)
+            dropout_rate: Dropout rate for regularization
+        """
+        super().__init__()
+
+        # Spatial Transformer Network for spatial invariance
+        self.stn = STN(input_channel=input_channels)
+
+        # Convolutional blocks with progressive feature extraction
+        def conv_block(in_channels, out_channels):
+            """Create a convolutional block with two conv layers, batch norm, pooling, and dropout."""
+            return nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
+                nn.BatchNorm2d(out_channels),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(2, 2),
+                nn.Dropout(dropout_rate)
+            )
+
+        # Feature extraction blocks
+        # Input: 48x48 -> Block1: 24x24 -> Block2: 12x12 -> Block3: 6x6 -> Block4: 3x3
+        self.block1 = conv_block(input_channels, 32)
+        self.block2 = conv_block(32, 64)
+        self.block3 = conv_block(64, 128)
+        self.block4 = conv_block(128, 256)
+
+        # Calculate flattened feature size: 256 channels * 3x3 spatial dims
+        self.flatten_dim = 256 * 3 * 3
+
+        # Fully connected layers
+        self.fc1 = nn.Linear(self.flatten_dim, 1024)
+        self.bn_fc1 = nn.BatchNorm1d(1024)
+        self.fc2 = nn.Linear(1024, 1024)
+        self.bn_fc2 = nn.BatchNorm1d(1024)
+
+        # Multi-output heads (using separate Linear layers for compatibility)
+        self.head_len = nn.Linear(1024, 5)   # Number of digits (0-4)
+        self.head_d1 = nn.Linear(1024, 11)   # Digit 1 (0-9 + blank)
+        self.head_d2 = nn.Linear(1024, 11)   # Digit 2 (0-9 + blank)
+        self.head_d3 = nn.Linear(1024, 11)   # Digit 3 (0-9 + blank)
+        self.head_d4 = nn.Linear(1024, 11)   # Digit 4 (0-9 + blank)
+        self.head_nc = nn.Linear(1024, 2)    # Has digits classifier
+
+    def forward(self, x):
+        """
+        Forward pass through the network.
+
+        Args:
+            x: Input tensor of shape (batch_size, channels, height, width)
+
+        Returns:
+            Dictionary with 6 output tensors
+        """
+        # Apply spatial transformation
+        x = self.stn(x)
+
+        # Feature extraction through convolutional blocks
+        x = self.block1(x)
+        x = self.block2(x)
+        x = self.block3(x)
+        x = self.block4(x)
+
+        # Flatten and pass through fully connected layers
+        x = x.view(x.size(0), -1)
+        x = torch.relu(self.bn_fc1(self.fc1(x)))
+        x = torch.relu(self.bn_fc2(self.fc2(x)))
+
+        # Multi-output prediction (return as dictionary for consistency)
+        return {
+            'num': self.head_len(x),
+            'dig1': self.head_d1(x),
+            'dig2': self.head_d2(x),
+            'dig3': self.head_d3(x),
+            'dig4': self.head_d4(x),
+            'nC': self.head_nc(x),
+        }
+
+
 def get_model(model_name: str, input_channels: int = 3, **kwargs):
     """
     Factory function to get a model by name.
 
     Args:
-        model_name: One of 'custom', 'improved', 'vgg16_scratch', 'vgg16_pretrained'
+        model_name: One of 'custom', 'improved', 'alternative', 'vgg16_scratch', 'vgg16_pretrained'
         input_channels: Number of input channels
         **kwargs: Additional model-specific arguments
 
@@ -664,6 +830,7 @@ def get_model(model_name: str, input_channels: int = 3, **kwargs):
     models_map = {
         'custom': CustomCNN,
         'improved': ImprovedCNN,
+        'alternative': AlternativeCNN,
         'vgg16_scratch': VGG16Scratch,
         'vgg16_pretrained': VGG16Pretrained,
     }
@@ -683,7 +850,7 @@ if __name__ == "__main__":
     height, width = 48, 48
     x = torch.randn(batch_size, channels, height, width)
 
-    for model_name in ['custom', 'improved', 'vgg16_scratch', 'vgg16_pretrained']:
+    for model_name in ['custom', 'improved', 'alternative', 'vgg16_scratch', 'vgg16_pretrained']:
         print(f"\n{'='*70}")
         print(f"Testing {model_name.upper()}")
         print('='*70)
