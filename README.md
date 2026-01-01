@@ -9,7 +9,7 @@ Deep learning project for detecting and classifying multi-digit sequences from s
 This project implements multiple CNN architectures to predict sequences of up to 4 digits from the Street View House Number (SVHN) dataset. It includes both training pipelines and a multi-scale sliding window detection system for real-world digit localization.
 
 **Key Features:**
-- Three different CNN architectures (Custom, VGG-16, Pre-trained VGG-16)
+- Four different CNN architectures (Custom, Improved, Alternative with STN, VGG-16)
 - Multi-task learning with 6 output heads
 - Multi-scale pyramid detection with sliding windows
 - Comprehensive training reports and visualizations
@@ -51,17 +51,23 @@ Download the pre-processed `.h5` dataset files and configure paths:
 
 ### 2. Train Models
 
-All training scripts are in the `models/` directory:
+All training scripts are in the `models/` directory (PyTorch):
 
 ```bash
-# Train the recommended pre-trained VGG-16 model
-python models/train_vgg16_pretrained.py
+# Train the recommended Alternative CNN with STN (BEST: 86.61%)
+python models/train_alternative_cnn_pytorch.py
 
-# Train custom designed CNN
-python models/train_custom_cnn.py
+# Train Improved CNN with modern architecture (81.72%)
+python models/train_improved_cnn_pytorch.py
 
-# Train VGG-16 from scratch
-python models/train_vgg16_scratch.py
+# Train pre-trained VGG-16 (78.02%)
+python models/train_vgg16_pretrained_pytorch.py
+
+# Train VGG-16 from scratch (77.25%)
+python models/train_vgg16_scratch_pytorch.py
+
+# Train custom designed CNN baseline (8.77%)
+python models/train_custom_cnn_pytorch.py
 ```
 
 Each training script will:
@@ -87,36 +93,45 @@ The detection system uses a 10-level image pyramid with sliding windows to handl
 
 ### Latest Training Results
 
-#### Pre-trained VGG-16 (Recommended)
-- **Test Accuracy:** 78.20%
-- **Validation Accuracy:** 88.57%
-- **Training Accuracy:** 98.71%
-- **Status:** Shows some overfitting; could benefit from additional regularization
+#### Alternative CNN with STN (Recommended) ⭐ **NEW BEST!**
+- **Test Sequence Accuracy:** 86.61%
+- **Validation Sequence Accuracy:** 92.62%
+- **Training Sequence Accuracy:** 98.82%
+- **Status:** Best performing model with Spatial Transformer Network for spatial invariance
 
 **Per-Component Test Accuracy:**
-- Number of Digits: 96.63%
-- Digit Position 1: 90.83%
-- Digit Position 2: 86.71%
-- Digit Position 3: 94.13%
-- Digit Position 4: 99.03%
+- Number of Digits: 97.39%
+- Digit Position 1: 94.90%
+- Digit Position 2: 92.07%
+- Digit Position 3: 96.22%
+- Digit Position 4: 99.52%
+- Has Digits: 99.55%
 
-![VGG16 PreTrain Accuracy](plots/all_digits_accuracy_vgg16_PreTrain.png)
-![VGG16 PreTrain Loss](plots/all_losses_vgg16_PreTrain.png)
-
-#### Custom Designed CNN
-- **Test Accuracy:** 35.33%
-- **Validation Accuracy:** 66.37%
-- **Training Accuracy:** 68.40%
-- **Status:** Converged without significant overfitting
+#### Improved CNN
+- **Test Sequence Accuracy:** 81.72%
+- **Validation Sequence Accuracy:** 90.20%
+- **Training Sequence Accuracy:** 96.99%
+- **Status:** Strong performer with ResNet + Inception + SE blocks
 
 **Per-Component Test Accuracy:**
-- Number of Digits: 95.04%
-- Digit Position 1: 67.28%
-- Digit Position 2: 52.44%
-- Digit Position 3: 81.49%
-- Digit Position 4: 98.78%
+- Number of Digits: 96.88%
+- Digit Position 1: 92.45%
+- Digit Position 2: 89.24%
+- Digit Position 3: 95.04%
+- Digit Position 4: 99.11%
+- Has Digits: 99.47%
 
-![Custom Design Accuracy](plots/all_digits_accuracy_customDesign.png)
+#### Pre-trained VGG-16
+- **Test Sequence Accuracy:** 78.02%
+- **Validation Sequence Accuracy:** 88.26%
+- **Training Sequence Accuracy:** 92.90%
+- **Status:** Good performance with transfer learning
+
+#### Custom Designed CNN (Baseline)
+- **Test Sequence Accuracy:** 8.77%
+- **Validation Sequence Accuracy:** 53.48%
+- **Training Sequence Accuracy:** 52.87%
+- **Status:** Baseline model for comparison
 
 ### Training Reports
 
@@ -134,16 +149,19 @@ These reports include:
 
 ```
 SVHN_CNN/
-├── models/                    # Training scripts (see models/README.md)
-│   ├── train_custom_cnn.py
-│   ├── train_vgg16_scratch.py
-│   ├── train_vgg16_pretrained.py
-│   └── training_utils.py     # Shared utilities
+├── models/                                    # PyTorch training scripts (see models/README.md)
+│   ├── pytorch_models.py                      # Model architectures (STN, Alternative, Improved, VGG16)
+│   ├── pytorch_utils.py                       # PyTorch training utilities
+│   ├── train_alternative_cnn_pytorch.py       # Alternative CNN with STN (BEST: 86.61%)
+│   ├── train_improved_cnn_pytorch.py          # Improved CNN (81.72%)
+│   ├── train_vgg16_pretrained_pytorch.py      # VGG-16 pretrained (78.02%)
+│   ├── train_vgg16_scratch_pytorch.py         # VGG-16 scratch (77.25%)
+│   └── train_custom_cnn_pytorch.py            # Custom CNN baseline (8.77%)
 ├── src/svhn_cnn/             # Core library code
 │   ├── data/                 # Data loading and preprocessing
 │   └── utils/                # Helper functions
 ├── datasets/                 # .h5 dataset files (gitignored)
-├── saved_models/             # Trained model checkpoints
+├── saved_models/             # Trained model checkpoints (.pt files)
 ├── plots/                    # Training visualizations and reports
 ├── metrics/                  # Performance metrics (pickle files)
 ├── input/                    # Images for detection
@@ -154,21 +172,32 @@ SVHN_CNN/
 
 ## Model Architectures
 
-### 1. Custom Designed CNN
-- 8 convolutional blocks (16 → 512 filters)
-- Batch normalization and strategic dropout
-- 3 fully connected layers (2048 → 1024 → 1024)
+### 1. Alternative CNN with STN ⭐ **BEST** - 86.61% Test Accuracy
+- Spatial Transformer Network for spatial invariance
+- 4 convolutional blocks (32 → 256 filters)
+- Batch normalization and dropout (0.25)
+- 2 fully connected layers (1024 → 1024)
 
-### 2. VGG-16 (Scratch)
+### 2. Improved CNN - 81.72% Test Accuracy
+- ResNet-style skip connections with SE blocks
+- Inception-style multi-scale feature extraction
+- Progressive feature refinement through 5 stages
+- 2 fully connected layers (1024 → 1024)
+
+### 3. VGG-16 (Pre-trained) - 78.02% Test Accuracy
+- VGG-16 with ImageNet weights
+- Transfer learning approach
+- Custom FC layers (1024 → 1024)
+
+### 4. VGG-16 (Scratch) - 77.25% Test Accuracy
 - Standard VGG-16 architecture
 - Random weight initialization
 - Custom FC layers (512 → 512)
 
-### 3. VGG-16 (Pre-trained) ⭐ Recommended
-- VGG-16 with ImageNet weights
-- Transfer learning approach
-- Custom FC layers (1024 → 1024)
-- Best performing model
+### 5. Custom Designed CNN (Baseline) - 8.77% Test Accuracy
+- 8 convolutional blocks (16 → 512 filters)
+- Batch normalization and strategic dropout
+- 3 fully connected layers (2048 → 1024 → 1024)
 
 All models use **multi-task learning** with 6 output heads:
 1. Number of digits (0-4)

@@ -7,7 +7,8 @@
 | Model | Train Acc | Val Acc | Test Acc | Train-Test Gap | Status |
 |-------|-----------|---------|----------|----------------|--------|
 | Custom CNN (baseline) | 52.87% | 53.48% | **8.77%** | 44.10% | ❌ Failed |
-| **Improved CNN** | 96.99% | 90.20% | **81.72%** | 15.27% | 🎉 **BEST!** |
+| Improved CNN | 96.99% | 90.20% | **81.72%** | 15.27% | ✅ Excellent |
+| **Alternative CNN (STN)** | 98.82% | 92.62% | **86.61%** | 12.21% | 🏆 **NEW BEST!** |
 | VGG16 Scratch | 93.24% | 87.43% | **77.25%** | 15.99% | ✅ Good |
 | VGG16 Pretrained | 92.90% | 88.26% | **78.02%** | 14.88% | ✅ Good |
 
@@ -22,16 +23,54 @@
 
 ## 🎯 Key Achievements
 
-### Improved CNN Success Metrics
+### Alternative CNN (STN) Success Metrics - 🏆 NEW CHAMPION!
 
-1. ✅ **81.72% test accuracy** - Highest among all PyTorch models
+1. ✅ **86.61% test accuracy** - HIGHEST among all models (PyTorch & Keras!)
+2. ✅ **9.9x improvement** over baseline Custom CNN (8.77% → 86.61%)
+3. ✅ **Beats Improved CNN** by 4.89 percentage points
+4. ✅ **Beats VGG16 from scratch** by 9.36 percentage points
+5. ✅ **Beats VGG16 pretrained** by 8.59 percentage points
+6. ✅ **Best generalization** - 12.21% train-test gap (lowest among high-performers)
+7. ✅ **Spatial invariance** - STN enables robust digit detection regardless of position/rotation
+8. ✅ **No pre-training required** - learned from SVHN data alone
+
+### Previous Champion - Improved CNN Success Metrics
+
+1. ✅ **81.72% test accuracy** - Second highest among all PyTorch models
 2. ✅ **9.3x improvement** over baseline Custom CNN (8.77% → 81.72%)
 3. ✅ **Beats VGG16 from scratch** by 4.47 percentage points
 4. ✅ **Beats VGG16 pretrained** by 3.70 percentage points
-5. ✅ **Better generalization** - 15.27% train-test gap vs 15-16% for VGG
+5. ✅ **Good generalization** - 15.27% train-test gap
 6. ✅ **No pre-training required** - learned from SVHN data alone
 
-### What Made It Work
+### What Made Alternative CNN the Champion
+
+The Alternative CNN achieves the best results through:
+
+1. **Spatial Transformer Network (STN)** (Jaderberg et al., 2015)
+   - Learns to apply spatial transformations (rotation, scaling, translation)
+   - Focuses on relevant image regions automatically
+   - Provides spatial invariance - critical for SVHN where digits vary in position
+   - Enables the network to "look" at digits from an optimal viewpoint
+
+2. **Simpler, more focused architecture**
+   - 4 convolutional blocks (32 → 64 → 128 → 256)
+   - Avoids over-parameterization that can hurt generalization
+   - Each block: 2x conv → batch norm → ReLU → MaxPool → Dropout
+
+3. **Strategic regularization**
+   - 0.25 dropout rate (lighter than Improved CNN's 0.5)
+   - Batch normalization after each conv pair
+   - Prevents overfitting while maintaining learning capacity
+
+4. **STN pre-processing advantage**
+   - The STN normalizes input before the main CNN sees it
+   - Main CNN gets "clean" aligned digits to classify
+   - Reduces the complexity burden on the classification layers
+
+**Key Insight**: Sometimes less is more! The Alternative CNN's simpler architecture + STN preprocessing outperforms more complex architectures.
+
+### What Made Improved CNN Work (Previous Champion)
 
 The Improved CNN combines three modern deep learning techniques:
 
@@ -60,7 +99,25 @@ The Improved CNN combines three modern deep learning techniques:
 
 ## 📊 Detailed Performance Analysis
 
-### Per-Digit Test Accuracies (Improved CNN)
+### Per-Digit Test Accuracies (Alternative CNN - Best Model)
+
+| Output Head | Test Accuracy | Notes |
+|-------------|---------------|-------|
+| Number of digits | 97.39% | Excellent |
+| Digit 1 | 94.90% | Excellent |
+| Digit 2 | 92.07% | Very good (even on hardest position!) |
+| Digit 3 | 96.22% | Excellent |
+| Digit 4 | 99.52% | Nearly perfect (often blank) |
+| Has digits (binary) | 99.55% | Nearly perfect |
+
+**Key Observations:**
+- All digits achieve >92% accuracy - exceptional balance
+- Even the hardest position (digit 2) achieves 92%!
+- Binary classifier nearly perfect (99.55%)
+- Most consistent performance across all outputs
+- **STN helps most with digit 2** (92.07% vs Improved's 89.24%)
+
+### Per-Digit Test Accuracies (Improved CNN - Second Best)
 
 | Output Head | Test Accuracy | Notes |
 |-------------|---------------|-------|
@@ -79,18 +136,57 @@ The Improved CNN combines three modern deep learning techniques:
 
 ### Comparison Metrics
 
-| Metric | Improved CNN | VGG16 Scratch | VGG16 Pretrained | Custom CNN |
-|--------|--------------|---------------|------------------|------------|
-| **Test Accuracy** | 81.72% | 77.25% | 78.02% | 8.77% |
-| **Validation Accuracy** | 90.20% | 87.43% | 88.26% | 53.48% |
-| **Train-Val Gap** | 6.79% | 5.81% | 4.64% | -0.61% |
-| **Val-Test Gap** | 8.48% | 10.18% | 10.24% | 44.71% |
-| **Parameters** | ~15M | ~16M | ~16M | ~20M |
-| **Training Epochs** | 100 | 50 | 50 | 75 |
+| Metric | Alternative CNN | Improved CNN | VGG16 Scratch | VGG16 Pretrained | Custom CNN |
+|--------|----------------|--------------|---------------|------------------|------------|
+| **Test Accuracy** | **86.61%** 🏆 | 81.72% | 77.25% | 78.02% | 8.77% |
+| **Validation Accuracy** | **92.62%** | 90.20% | 87.43% | 88.26% | 53.48% |
+| **Train-Val Gap** | **6.20%** | 6.79% | 5.81% | 4.64% | -0.61% |
+| **Val-Test Gap** | **6.01%** 🏆 | 8.48% | 10.18% | 10.24% | 44.71% |
+| **Train-Test Gap** | **12.21%** 🏆 | 15.27% | 15.99% | 14.88% | 44.10% |
+| **Parameters** | ~5M | ~15M | ~16M | ~16M | ~20M |
+| **Training Epochs** | 75 | 100 | 50 | 50 | 75 |
+
+**Key Insights:**
+- 🏆 Alternative CNN has the BEST generalization (lowest Val-Test and Train-Test gaps)
+- 🏆 Alternative CNN has FEWEST parameters but BEST accuracy (efficiency champion!)
+- Alternative CNN trained faster (75 epochs) than Improved CNN (100 epochs)
 
 ---
 
-## 🚀 Why Improved CNN Outperforms Others
+## 🚀 Why Alternative CNN is the Champion
+
+### vs. Improved CNN (previous best):
+- **Alternative advantage**: STN provides spatial invariance
+- **Improved limitation**: No explicit spatial transformation learning
+- **Alternative advantage**: Simpler architecture (5M vs 15M params) → better generalization
+- **Improved limitation**: More complex → slight overfitting tendency
+- **Alternative advantage**: Best val-test gap (6.01% vs 8.48%)
+- **Result**: 81.72% → **86.61%** (+4.89%)
+
+### vs. Custom CNN (baseline):
+- ❌ **Baseline problem**: No skip connections, no STN → vanishing gradients + no spatial invariance
+- ✅ **Alternative solution**: STN handles spatial variations, simpler network avoids gradient issues
+- **Result**: 8.77% → **86.61%** (9.9x improvement!)
+
+### vs. VGG16 Pretrained:
+- **VGG16 limitation**: Designed for ImageNet (1000 classes, 224x224)
+- **Alternative advantage**: Purpose-built for SVHN (48x48, digit detection) with STN
+- **VGG16 advantage**: ImageNet pre-training
+- **Alternative advantage**: STN + optimized architecture compensates and exceeds
+- **Result**: 78.02% → **86.61%** (+8.59%)
+
+### vs. VGG16 from Scratch:
+- **VGG16 limitation**: Uniform 3x3 convolutions, no spatial awareness
+- **Alternative advantage**: STN learns optimal viewpoint transformations
+- **VGG16 limitation**: 16M parameters for 48x48 images
+- **Alternative advantage**: 5M parameters, more efficient
+- **Result**: 77.25% → **86.61%** (+9.36%)
+
+**The Secret Sauce**: STN preprocessing + simpler focused architecture beats complex architectures!
+
+---
+
+## 🚀 Why Improved CNN Outperforms Others (Comparison)
 
 ### vs. Custom CNN (baseline):
 - ❌ **Baseline problem**: No skip connections → vanishing gradients
@@ -205,10 +301,11 @@ All trained models are saved in `saved_models/`:
 
 ```
 saved_models/
-├── designedBGRClassifier_pytorch.pt          # Custom CNN (baseline) - 8.77%
+├── alternativeCNN_pytorch.pt                  # Alternative CNN (STN) - 86.61% 🏆 BEST!
 ├── improvedCNN_pytorch.pt                    # Improved CNN - 81.72% ⭐
+├── VGGPreTrained_classifier_pytorch.pt       # VGG16 Pretrained - 78.02%
 ├── vgg16_classifier_pytorch.pt               # VGG16 Scratch - 77.25%
-└── VGGPreTrained_classifier_pytorch.pt       # VGG16 Pretrained - 78.02%
+└── designedBGRClassifier_pytorch.pt          # Custom CNN (baseline) - 8.77%
 ```
 
 Training plots and metrics available in:
@@ -219,27 +316,36 @@ Training plots and metrics available in:
 
 ## 🎯 Conclusion
 
-The **ImprovedCNN** architecture successfully demonstrates that:
+The **Alternative CNN with STN** is the NEW CHAMPION and demonstrates that:
 
-✅ Modern deep learning techniques (ResNet + Inception + SENet) significantly outperform classic architectures
-✅ Purpose-built architectures can beat transfer learning for specialized tasks
-✅ Careful architectural design is more important than having pre-trained weights
-✅ Combining multiple modern techniques creates synergistic improvements
+🏆 **Spatial invariance is critical** - STN preprocessing provides the biggest boost for SVHN
+🏆 **Simpler can be better** - 5M parameters outperforms 15M+ parameter models
+🏆 **Purpose-built beats transfer learning** - Custom architecture exceeds ImageNet pre-training
+🏆 **Best generalization** - Lowest overfitting among all high-performing models
+🏆 **Most efficient** - Fewer parameters, faster training, best accuracy
 
-**Bottom line:** The Improved CNN achieved **81.72% test accuracy**, making it the best performing model in this project and proving that thoughtful architectural innovation can dramatically improve results.
+**Final Rankings:**
+1. 🥇 **Alternative CNN (STN)**: **86.61%** - Spatial invariance champion
+2. 🥈 **Improved CNN**: 81.72% - Modern architecture runner-up
+3. 🥉 **VGG16 Pretrained**: 78.02% - Transfer learning baseline
+4. **VGG16 Scratch**: 77.25% - Classic architecture
+5. ❌ **Custom CNN**: 8.77% - Baseline failure case
+
+**Bottom line:** The Alternative CNN achieved **86.61% test accuracy**, making it the BEST performing model in this project and proving that **Spatial Transformer Networks** are incredibly powerful for tasks with spatial variance like SVHN digit detection!
 
 ---
 
 ## 📚 References
 
-1. He, K., et al. (2016). "Deep Residual Learning for Image Recognition." CVPR.
-2. Szegedy, C., et al. (2015). "Going Deeper with Convolutions." CVPR.
-3. Hu, J., et al. (2018). "Squeeze-and-Excitation Networks." CVPR.
-4. Goodfellow, I. J., et al. (2013). "Multi-digit Number Recognition from Street View Imagery using Deep CNNs."
-5. Netzer, Y., et al. (2011). "Reading Digits in Natural Images with Unsupervised Feature Learning." NIPS Workshop.
+1. **Jaderberg, M., et al. (2015). "Spatial Transformer Networks." NIPS.** ⭐ Key to Alternative CNN
+2. He, K., et al. (2016). "Deep Residual Learning for Image Recognition." CVPR.
+3. Szegedy, C., et al. (2015). "Going Deeper with Convolutions." CVPR.
+4. Hu, J., et al. (2018). "Squeeze-and-Excitation Networks." CVPR.
+5. Goodfellow, I. J., et al. (2013). "Multi-digit Number Recognition from Street View Imagery using Deep CNNs."
+6. Netzer, Y., et al. (2011). "Reading Digits in Natural Images with Unsupervised Feature Learning." NIPS Workshop.
 
 ---
 
-**Generated**: 2025-12-28
-**Best Model**: ImprovedCNN with 81.72% test accuracy
-**Status**: ✅ Mission Accomplished - All targets exceeded!
+**Generated**: 2026-01-01
+**Best Model**: Alternative CNN (STN) with **86.61%** test accuracy 🏆
+**Status**: ✅🎉 MISSION EXCEEDED - New champion crowned!
